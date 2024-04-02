@@ -39,7 +39,7 @@
 /* Automatic theme selection */
 :root, .dark{
 	/* Default & fallback theme (dark) */
-	--accent: aqua;
+	--accent: #349188;
 	--green: #5cff85;
 	--text: white;
 	--foreground: #222;
@@ -115,7 +115,7 @@ pre, form, fieldset, table, th, td, select, input {
 body {
 	background: var(--background);
 	padding-bottom: var(--footer-height);
-	font-size: 15px;
+	font-size: small;
 	position: relative;
 }
 
@@ -1156,7 +1156,7 @@ a.search_subreddit:hover {
 /* Comment */
 
 .comment {
-	margin: 10px 0;
+	margin: 2px 0;
 	border-radius: 5px;
 	display: flex;
 }
@@ -1194,16 +1194,19 @@ a.search_subreddit:hover {
 .comment_score {
 	color: var(--accent);
 	background: var(--foreground);
-	min-width: 40px;
+	min-width: 30px;
 	border-radius: 5px;
-	padding: 10px 0;
-	font-size: 14px;
+	padding: 5px 0;
+	font-size: small;
 	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .comment_right {
 	word-wrap: anywhere;
-	padding: 10px 0 10px 5px;
+	padding: 2px 0 2px 5px;
 	flex-grow: 1;
 	flex-shrink: 1;
 	min-width: 0;
@@ -1231,7 +1234,7 @@ a.search_subreddit:hover {
 }
 
 .comment_body > p:not(:first-child) {
-	margin-top: 20px;
+	margin-top: 5px;
 }
 
 .comment_body a {
@@ -1259,7 +1262,7 @@ a.search_subreddit:hover {
 
 .replies > .comment {
 	margin-left: -20px;
-	padding: 5px;
+	padding: 0px;
 }
 
 .created {
@@ -1280,6 +1283,10 @@ a.search_subreddit:hover {
 
 summary.comment_data {
 	cursor: pointer;
+}
+
+summary::marker {
+	font-size: 16px;
 }
 
 .moderator, .admin { opacity: 1; }
@@ -1459,7 +1466,7 @@ input[type="submit"] {
 }
 
 .md > *:not(:first-child) {
-	margin-top: 20px;
+	margin-top: 10px;
 }
 
 .md h1 { font-size: 22px; }
@@ -1682,18 +1689,21 @@ td, th {
 	}
 
 	/* .thread { margin-left: -5px; } */
-	.comment_right { padding: 5px 0 10px 2px; }
-	.comment_author { margin-left: 12px; }
+	.comment_right { padding: 2px 0 2px 2px; }
+	.comment_author { margin-left: 2px; }
 	.comment_data { margin-left: 12px; }
-	.comment_data::marker { font-size: 25px; }
+	.comment_data::marker { font-size: 18px; }
 	.created { width: 100%; }
 
 	.comment_score {
 		min-width: 32px;
 		height: 20px;
-		font-size: 15px;
-		padding: 7px 0px;
+		font-size: small;
+		padding: 4px 0px;
 		margin-right: -5px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	#post_links > li { margin-right: 10px }
