@@ -1156,7 +1156,7 @@ a.search_subreddit:hover {
 /* Comment */
 
 .comment {
-	margin: 10px 0;
+	margin: 0;
 	border-radius: 5px;
 	display: flex;
 }
@@ -1203,7 +1203,7 @@ a.search_subreddit:hover {
 
 .comment_right {
 	word-wrap: anywhere;
-	padding: 10px 0 10px 5px;
+	padding: 5px 0 5px 2px;
 	flex-grow: 1;
 	flex-shrink: 1;
 	min-width: 0;
@@ -1632,6 +1632,11 @@ td, th {
 		padding: 0;
 	}
 
+	.deeper_replies {
+		display: block;
+		padding-bottom: 2px;
+	}
+	
 	main {
 		flex-direction: column-reverse;
 		padding: 10px;
@@ -1639,6 +1644,10 @@ td, th {
 		max-width: 100%;
 	}
 	
+	.post_title {
+		font-size: 15px;
+	}
+
 	nav {
 		grid-template-areas: 'logo links' 'searchbox searchbox';
 		padding: 10px;
