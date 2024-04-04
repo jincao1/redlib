@@ -1592,7 +1592,7 @@ td, th {
 /* Mobile */
 
 @media screen and (max-width: 800px) {
-	body.fixed_navbar { padding-top: 120px }
+	body.fixed_navbar { padding-top: 60px }
 
 	body {
 		font-size: small;
@@ -1658,6 +1658,14 @@ td, th {
 	nav #links span { display: none; }
 	nav #links svg { display: block; }
 
+	#search_icon {
+		margin-right: 5px;
+	}
+
+	#searchbox {
+		display: none;
+	}
+
 	#subscriptions { position: unset; }
 
 	#sub_list {
@@ -1688,7 +1696,7 @@ td, th {
 }
 
 @media screen and (max-width: 480px) {
-	body.fixed_navbar { padding-top: 100px; }
+	body.fixed_navbar { padding-top: 60px; }
 	#version { display: none; }
 
 	.post {

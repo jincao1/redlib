@@ -224,6 +224,9 @@ async fn main() {
 	app.at("/touch-icon-iphone.png").get(|_| iphone_logo().boxed());
 	app.at("/apple-touch-icon.png").get(|_| iphone_logo().boxed());
 	app
+		.at("/app.js")
+		.get(|_| resource(include_str!("../static/app.js"), "text/javascript", false).boxed());
+	app
 		.at("/playHLSVideo.js")
 		.get(|_| resource(include_str!("../static/playHLSVideo.js"), "text/javascript", false).boxed());
 	app
