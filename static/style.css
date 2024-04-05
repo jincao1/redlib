@@ -1652,6 +1652,7 @@ td, th {
 		grid-template-areas: 'logo links' 'searchbox searchbox';
 		padding: 10px;
 		width: calc(100% - 20px);
+		padding-bottom: 2px;
 	}
 
 	nav #links { margin-left: auto; }
@@ -1659,11 +1660,12 @@ td, th {
 	nav #links svg { display: block; }
 
 	#search_icon {
-		margin-right: 5px;
+		margin: 0 5px 0 10px;
 	}
 
 	#searchbox {
 		display: none;
+		margin-bottom: 5px;
 	}
 
 	#subscriptions { position: unset; }
