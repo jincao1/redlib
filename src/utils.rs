@@ -877,14 +877,16 @@ pub fn format_url(url: &str) -> String {
 static REDDIT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r#"href="(https|http|)://(www\.|old\.|np\.|amp\.|new\.|)(reddit\.com|redd\.it)/"#).unwrap());
 static REDDIT_PREVIEW_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://(external-preview|preview)\.redd\.it(.*)[^?]").unwrap());
 static REDDIT_EMOJI_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://(www|).redditstatic\.com/(.*)").unwrap());
+static REDLIB_PREVIEW_LINK_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r#"/preview/(pre|external-pre)/(.*?)>"#).unwrap());
+static REDLIB_PREVIEW_TEXT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r">(.*?)</a>").unwrap());
 
 // Rewrite Reddit links to Redlib in body of text
 pub fn rewrite_urls(input_text: &str) -> String {
-	let text1 =
+	let mut text1 =
 		// Rewrite Reddit links to Redlib
 		REDDIT_REGEX.replace_all(input_text, r#"href="/"#)
 			.to_string();
-	let text1 = REDDIT_EMOJI_REGEX
+	text1 = REDDIT_EMOJI_REGEX
 		.replace_all(&text1, format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
 		.to_string()
 		// Remove (html-encoded) "\" from URLs.
@@ -892,12 +894,23 @@ pub fn rewrite_urls(input_text: &str) -> String {
 		.replace("\\_", "_");
 
 	// Rewrite external media previews to Redlib
-	if REDDIT_PREVIEW_REGEX.is_match(&text1) {
-		REDDIT_PREVIEW_REGEX
-			.replace_all(&text1, format_url(REDDIT_PREVIEW_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
-			.to_string()
-	} else {
-		text1
+	loop {
+		if REDDIT_PREVIEW_REGEX.find(&text1).is_none() {
+			return text1;
+		} else {
+			let formatted_url = format_url(REDDIT_PREVIEW_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default());
+
+			let image_url = REDLIB_PREVIEW_LINK_REGEX.find(&formatted_url).map_or("", |m| m.as_str()).to_string();
+			let image_text = REDLIB_PREVIEW_TEXT_REGEX.find(&formatted_url).map_or("", |m| m.as_str()).to_string();
+
+			let image_to_replace = format!("<a href=\"{image_url}{image_text}").replace(">>", ">");
+			let image_replacement = format!("<a href=\"{image_url}<img src=\"{image_url}</a>");
+
+			text1 = REDDIT_PREVIEW_REGEX
+				.replace(&text1, formatted_url)
+				.replace(&image_to_replace, &image_replacement)
+				.to_string()
+		}
 	}
 }
 
@@ -1147,4 +1160,15 @@ async fn test_fetching_ws() {
 	for post in subreddit.unwrap().0 {
 		assert!(post.ws_url.starts_with("wss://k8s-lb.wss.redditmedia.com/link/"));
 	}
+}
+
+#[test]
+fn test_rewriting_image_links() {
+	let input = r#"<p><a href="https://preview.redd.it/zq21ggkj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=539d8050628ec1190cac26468fe99cc66b6071ab">https://preview.redd.it/zq21ggkj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=539d8050628ec1190cac26468fe99cc66b6071ab</a></p>
+	<p><a href="https://preview.redd.it/vty9ocij2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=fc7c7ef993a5e9ef656d5f5d9cf8290a0a1df877">https://preview.redd.it/vty9ocij2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=fc7c7ef993a5e9ef656d5f5d9cf8290a0a1df877</a></p>
+	<p><a href="https://preview.redd.it/bdfdxkjj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=d0fa420ece27605e882e89cb4711d75d774322ac">https://preview.redd.it/bdfdxkjj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=d0fa420ece27605e882e89cb4711d75d774322ac</a></p>
+	<p><a href="https://preview.redd.it/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc">caption 1</a></p>
+	<p><a href="https://preview.redd.it/rbu2ca2b2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=afb538cf784d2e339de9a91aba5dc9c92e47988f">caption 2</a></p>"#;
+	let output = r#"<p><a href="/preview/pre/zq21ggkj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=539d8050628ec1190cac26468fe99cc66b6071ab"><img src="/preview/pre/zq21ggkj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=539d8050628ec1190cac26468fe99cc66b6071ab"></a></p>	<p><a href="/preview/pre/vty9ocij2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=fc7c7ef993a5e9ef656d5f5d9cf8290a0a1df877"><img src="/preview/pre/vty9ocij2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=fc7c7ef993a5e9ef656d5f5d9cf8290a0a1df877"></a></p>	<p><a href="/preview/pre/bdfdxkjj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=d0fa420ece27605e882e89cb4711d75d774322ac"><img src="/preview/pre/bdfdxkjj2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=d0fa420ece27605e882e89cb4711d75d774322ac"></a></p>	<p><a href="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"><img src="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"></a></p>	<p><a href="/preview/pre/rbu2ca2b2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=afb538cf784d2e339de9a91aba5dc9c92e47988f"><img src="/preview/pre/rbu2ca2b2xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=afb538cf784d2e339de9a91aba5dc9c92e47988f"></a></p>"#;
+	assert_eq!(rewrite_urls(input), output);
 }

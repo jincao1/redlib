@@ -112,6 +112,16 @@ pre, form, fieldset, table, th, td, select, input {
 	font-family: "Inter", sans-serif;
 }
 
+html.fixed_navbar {
+	scroll-padding-top: 50px;
+}
+
+@media screen and (max-width: 800px) {
+	html.fixed_navbar {
+		scroll-padding-top: 100px;
+	}
+}
+
 body {
 	background: var(--background);
 	padding-bottom: var(--footer-height);
@@ -998,6 +1008,10 @@ a.search_subreddit:hover {
 	overflow-wrap: anywhere;
 }
 
+.post_body img {
+	max-width: 100%;
+}
+
 .post_poll {
 	grid-area: post_poll;
 	padding: 5px 15px 5px 12px;
@@ -1159,6 +1173,18 @@ a.search_subreddit:hover {
 	margin: 0;
 	border-radius: 5px;
 	display: flex;
+}
+
+.comment img {
+	max-width: 50%;
+	height: auto;
+}
+
+@media screen and (max-width: 500px) {
+	.comment img {
+		max-width: 80%;
+		height: auto;
+	}
 }
 
 .comment_left, .comment_right {
