@@ -3,8 +3,8 @@ services:
     # image: quay.io/redlib/redlib:latest
     # image: quay.io/redlib/redlib:latest-arm # uncomment if you use arm64
     # using my local image
-    # image: my-redlib:latest
-    build : .
+    image: redlib:latest
+    # build : .
     # image: quay.io/redlib/redlib:latest-armv7 # uncomment if you use armv7
     restart: always
     container_name: "redlib"
