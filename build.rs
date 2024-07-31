@@ -1,4 +1,5 @@
 use std::process::{Command, ExitStatus, Output};
+use std::time::SystemTime;
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
@@ -21,5 +22,8 @@ fn main() {
 	)
 	.unwrap_or_default();
 	let git_hash = if output == String::default() { "dev".into() } else { output };
+	let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("get millis error");
+	let build_time = now.as_millis();
 	println!("cargo:rustc-env=GIT_HASH={git_hash}");
+	println!("cargo:rustc-env=BUILD_TIME={build_time}");
 }

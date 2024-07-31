@@ -1409,7 +1409,7 @@ a.search_subreddit:hover {
     min-width: 40px;
     border-radius: 5px;
     padding: 10px 0;
-    font-size: 14px;
+    font-size: small;
     font-weight: 600;
 }
 
@@ -2100,7 +2100,7 @@ th {
     .comment_score {
         min-width: 32px;
         height: 20px;
-        font-size: 15px;
+        font-size: small;
         padding: 7px 0px;
         margin-right: -5px;
     }
