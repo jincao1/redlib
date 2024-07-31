@@ -203,12 +203,6 @@ docker logs -f redlib
 
 ### Docker CLI
 
-> [!IMPORTANT]
-> If deploying on:
->
-> - an `arm64` platform, use the `quay.io/redlib/redlib:latest-arm` image instead.
-> - an `armv7` platform, use the `quay.io/redlib/redlib:latest-armv7` image instead.
-
 Deploy Redlib:
 
 ```bash
@@ -387,7 +381,8 @@ Assign a default value for each instance-specific setting by passing environment
 | `ROBOTS_DISABLE_INDEXING` | `["on", "off"]` | `off`                  | Disables indexing of the instance by search engines.                                                      |
 | `PUSHSHIFT_FRONTEND`      | String          | `undelete.pullpush.io` | Allows the server to set the Pushshift frontend to be used with "removed" links.                          |
 | `PORT`                    | Integer 0-65535 | `8080`                 | The **internal** port Redlib listens on.                                                                  |
-
+| `ENABLE_RSS`              | `["on", "off"]` | `off`                  | Enables RSS feed generation.                                                                              |
+| `FULL_URL`                | String          | (empty)                | Allows for proper URLs (for now, only needed by RSS)
 ## Default user settings
 
 Assign a default value for each user-modifiable setting by passing environment variables to Redlib in the format `REDLIB_DEFAULT_{Y}`. Replace `{Y}` with the setting name (see list below) in capital letters.
@@ -400,6 +395,7 @@ Assign a default value for each user-modifiable setting by passing environment v
 | `WIDE`                              | `["on", "off"]`                                                                                                                    | `off`         |
 | `POST_SORT`                         | `["hot", "new", "top", "rising", "controversial"]`                                                                                 | `hot`         |
 | `COMMENT_SORT`                      | `["confidence", "top", "new", "controversial", "old"]`                                                                             | `confidence`  |
+| `BLUR_SPOILER`                         | `["on", "off"]`                                                                                                                    | `off`         |
 | `SHOW_NSFW`                         | `["on", "off"]`                                                                                                                    | `off`         |
 | `BLUR_NSFW`                         | `["on", "off"]`                                                                                                                    | `off`         |
 | `USE_HLS`                           | `["on", "off"]`                                                                                                                    | `off`         |
@@ -409,4 +405,5 @@ Assign a default value for each user-modifiable setting by passing environment v
 | `HIDE_AWARDS`                       | `["on", "off"]`                                                                                                                    | `off`         |
 | `DISABLE_VISIT_REDDIT_CONFIRMATION` | `["on", "off"]`                                                                                                                    | `off`         |
 | `HIDE_SCORE`                        | `["on", "off"]`                                                                                                                    | `off`         |
+| `HIDE_SIDEBAR_AND_SUMMARY`          | `["on", "off"]`                                                                                                                    | `off`         |
 | `FIXED_NAVBAR`                      | `["on", "off"]`                                                                                                                    | `on`          |

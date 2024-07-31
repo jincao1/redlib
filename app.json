@@ -29,6 +29,9 @@
     "REDLIB_DEFAULT_POST_SORT": {
       "required": false
     },
+    "REDLIB_DEFAULT_BLUR_SPOILER": {
+      "required": false
+    },
     "REDLIB_DEFAULT_SHOW_NSFW": {
       "required": false
     },
@@ -53,16 +56,25 @@
     "REDLIB_BANNER": {
       "required": false
     },
-    "REDLIB_ROBOTS_DISABLE_INDEXING":  {
-        "required": false
+    "REDLIB_ROBOTS_DISABLE_INDEXING": {
+      "required": false
     },
     "REDLIB_DEFAULT_SUBSCRIPTIONS": {
+      "required": false
+    },
+    "REDLIB_DEFAULT_FILTERS": {
       "required": false
     },
     "REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION": {
       "required": false
     },
     "REDLIB_PUSHSHIFT_FRONTEND": {
+      "required": false
+    },
+    "REDLIB_ENABLE_RSS": {
+      "required": false
+    },
+    "REDLIB_FULL_URL": {
       "required": false
     }
   }

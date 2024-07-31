@@ -48,6 +48,10 @@ pub struct Config {
 	#[serde(alias = "LIBREDDIT_DEFAULT_POST_SORT")]
 	pub(crate) default_post_sort: Option<String>,
 
+	#[serde(rename = "REDLIB_DEFAULT_BLUR_SPOILER")]
+	#[serde(alias = "LIBREDDIT_DEFAULT_BLUR_SPOILER")]
+	pub(crate) default_blur_spoiler: Option<String>,
+
 	#[serde(rename = "REDLIB_DEFAULT_SHOW_NSFW")]
 	#[serde(alias = "LIBREDDIT_DEFAULT_SHOW_NSFW")]
 	pub(crate) default_show_nsfw: Option<String>,
@@ -80,6 +84,10 @@ pub struct Config {
 	#[serde(alias = "LIBREDDIT_DEFAULT_SUBSCRIPTIONS")]
 	pub(crate) default_subscriptions: Option<String>,
 
+	#[serde(rename = "REDLIB_DEFAULT_FILTERS")]
+	#[serde(alias = "LIBREDDIT_DEFAULT_FILTERS")]
+	pub(crate) default_filters: Option<String>,
+
 	#[serde(rename = "REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION")]
 	#[serde(alias = "LIBREDDIT_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION")]
 	pub(crate) default_disable_visit_reddit_confirmation: Option<String>,
@@ -95,6 +103,12 @@ pub struct Config {
 	#[serde(rename = "REDLIB_PUSHSHIFT_FRONTEND")]
 	#[serde(alias = "LIBREDDIT_PUSHSHIFT_FRONTEND")]
 	pub(crate) pushshift: Option<String>,
+
+	#[serde(rename = "REDLIB_ENABLE_RSS")]
+	pub(crate) enable_rss: Option<String>,
+
+	#[serde(rename = "REDLIB_FULL_URL")]
+	pub(crate) full_url: Option<String>,
 }
 
 impl Config {
@@ -126,6 +140,7 @@ impl Config {
 			default_post_sort: parse("REDLIB_DEFAULT_POST_SORT"),
 			default_wide: parse("REDLIB_DEFAULT_WIDE"),
 			default_comment_sort: parse("REDLIB_DEFAULT_COMMENT_SORT"),
+			default_blur_spoiler: parse("REDLIB_DEFAULT_BLUR_SPOILER"),
 			default_show_nsfw: parse("REDLIB_DEFAULT_SHOW_NSFW"),
 			default_blur_nsfw: parse("REDLIB_DEFAULT_BLUR_NSFW"),
 			default_use_hls: parse("REDLIB_DEFAULT_USE_HLS"),
@@ -134,10 +149,13 @@ impl Config {
 			default_hide_sidebar_and_summary: parse("REDLIB_DEFAULT_HIDE_SIDEBAR_AND_SUMMARY"),
 			default_hide_score: parse("REDLIB_DEFAULT_HIDE_SCORE"),
 			default_subscriptions: parse("REDLIB_DEFAULT_SUBSCRIPTIONS"),
+			default_filters: parse("REDLIB_DEFAULT_FILTERS"),
 			default_disable_visit_reddit_confirmation: parse("REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION"),
 			banner: parse("REDLIB_BANNER"),
 			robots_disable_indexing: parse("REDLIB_ROBOTS_DISABLE_INDEXING"),
 			pushshift: parse("REDLIB_PUSHSHIFT_FRONTEND"),
+			enable_rss: parse("REDLIB_ENABLE_RSS"),
+			full_url: parse("REDLIB_FULL_URL"),
 		}
 	}
 }
@@ -150,19 +168,23 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_LAYOUT" => config.default_layout.clone(),
 		"REDLIB_DEFAULT_COMMENT_SORT" => config.default_comment_sort.clone(),
 		"REDLIB_DEFAULT_POST_SORT" => config.default_post_sort.clone(),
+		"REDLIB_DEFAULT_BLUR_SPOILER" => config.default_blur_spoiler.clone(),
 		"REDLIB_DEFAULT_SHOW_NSFW" => config.default_show_nsfw.clone(),
 		"REDLIB_DEFAULT_BLUR_NSFW" => config.default_blur_nsfw.clone(),
 		"REDLIB_DEFAULT_USE_HLS" => config.default_use_hls.clone(),
 		"REDLIB_DEFAULT_HIDE_HLS_NOTIFICATION" => config.default_hide_hls_notification.clone(),
 		"REDLIB_DEFAULT_WIDE" => config.default_wide.clone(),
 		"REDLIB_DEFAULT_HIDE_AWARDS" => config.default_hide_awards.clone(),
-		"REDLIB_DEFAULT_HIDE_SIDEBAR_AND_SUMMARY" => config.default_hide_awards.clone(),
+		"REDLIB_DEFAULT_HIDE_SIDEBAR_AND_SUMMARY" => config.default_hide_sidebar_and_summary.clone(),
 		"REDLIB_DEFAULT_HIDE_SCORE" => config.default_hide_score.clone(),
 		"REDLIB_DEFAULT_SUBSCRIPTIONS" => config.default_subscriptions.clone(),
+		"REDLIB_DEFAULT_FILTERS" => config.default_filters.clone(),
 		"REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION" => config.default_disable_visit_reddit_confirmation.clone(),
 		"REDLIB_BANNER" => config.banner.clone(),
 		"REDLIB_ROBOTS_DISABLE_INDEXING" => config.robots_disable_indexing.clone(),
 		"REDLIB_PUSHSHIFT_FRONTEND" => config.pushshift.clone(),
+		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
+		"REDLIB_FULL_URL" => config.full_url.clone(),
 		_ => None,
 	}
 }
@@ -229,6 +251,12 @@ fn test_alt_env_config_precedence() {
 #[sealed_test(env = [("REDLIB_DEFAULT_SUBSCRIPTIONS", "news+bestof")])]
 fn test_default_subscriptions() {
 	assert_eq!(get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS"), Some("news+bestof".into()));
+}
+
+#[test]
+#[sealed_test(env = [("REDLIB_DEFAULT_FILTERS", "news+bestof")])]
+fn test_default_filters() {
+	assert_eq!(get_setting("REDLIB_DEFAULT_FILTERS"), Some("news+bestof".into()));
 }
 
 #[test]
