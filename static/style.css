@@ -1518,9 +1518,9 @@ a.search_subreddit:hover {
     background: var(--foreground);
 }
 
-summary::marker {
+/* summary::marker {
     font-size: 25px;
-}
+} */
 
 summary.comment_data {
     cursor: pointer;
@@ -2012,7 +2012,7 @@ th {
         #user { margin: 49px 0 20px 0; }
         #settings { margin-top: 48px; }
         div.post.highlighted { margin-top: 49px; }
-        main:not(:has(div + aside)) { #sort { margin-top: 49px; } }
+        main:not(:has(div + aside)) { #sort { margin-top: 10px; } }
         #column_one:has(div.post.highlighted + #commentQueryForms) { #sort { margin-top: 0 } }
     }
 
