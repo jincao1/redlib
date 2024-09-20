@@ -2011,8 +2011,8 @@ th {
         #subreddit { margin: 49px 0 0; }
         #user { margin: 49px 0 20px 0; }
         #settings { margin-top: 48px; }
-        div.post.highlighted { margin-top: 49px; }
-        main:not(:has(div + aside)) { #sort { margin-top: 10px; } }
+        div.post.highlighted { margin-top: 10px; }
+        main:not(:has(div + aside)) { #sort { margin-top: 1px; } }
         #column_one:has(div.post.highlighted + #commentQueryForms) { #sort { margin-top: 0 } }
     }
 
@@ -2025,6 +2025,10 @@ th {
     }
     #searchbox {
         width: calc(100vw - 20px);
+        margin-bottom: 10px;
+    }
+
+    #sort {
         margin-bottom: 10px;
     }
 }
