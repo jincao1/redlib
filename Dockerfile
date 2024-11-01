@@ -7,18 +7,9 @@ RUN apk add --no-cache g++ git
 
 WORKDIR /usr/src/redlib
 
-# cache dependencies in their own layer
-COPY Cargo.lock Cargo.toml ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo install --config net.git-fetch-with-cli=true --path . && rm -rf ./src
-
 COPY . .
 
-# net.git-fetch-with-cli is specified in order to prevent a potential OOM kill
-# in low memory environments. See:
-#     https://users.rust-lang.org/t/cargo-uses-too-much-memory-being-run-in-qemu/76531
-# This is tracked under issue #641. This also requires us to install git in the
-# builder.
-RUN cargo install --config net.git-fetch-with-cli=true --path .
+RUN cargo build --release
 
 ####################################################################################################
 ## Final image
@@ -30,7 +21,7 @@ COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
 # Copy our build
-COPY --from=builder /usr/local/cargo/bin/redlib /usr/local/bin/redlib
+COPY --from=builder /usr/src/redlib/target/release/redlib /usr/local/bin/redlib
 
 # Use an unprivileged user.
 RUN adduser --home /nonexistent --no-create-home --disabled-password redlib
