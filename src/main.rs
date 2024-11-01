@@ -2,35 +2,20 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::cmp_owned)]
 
-// Reference local files
-mod config;
-mod duplicates;
-mod instance_info;
-mod oauth;
-mod oauth_resources;
-mod post;
-mod search;
-mod settings;
-mod subreddit;
-mod user;
-mod utils;
-
 // Import Crates
 use clap::{Arg, ArgAction, Command};
 
 use futures_lite::FutureExt;
 use hyper::{header::HeaderValue, Body, Request, Response};
 
-mod client;
-use client::{canonical_path, proxy};
 use log::info;
 use once_cell::sync::Lazy;
-use server::RequestExt;
-use utils::{error, redirect, ThemeAssets};
+use redlib::client::{canonical_path, proxy};
+use redlib::server::{self, RequestExt};
+use redlib::utils::{error, redirect, ThemeAssets};
+use redlib::{config, duplicates, headers, instance_info, post, search, settings, subreddit, user};
 
-use crate::client::OAUTH_CLIENT;
-
-mod server;
+use redlib::client::OAUTH_CLIENT;
 
 // Create Services
 
@@ -243,6 +228,9 @@ async fn main() {
 	app.at("/thumb/:point/:id").get(|r| proxy(r, "https://{point}.thumbs.redditmedia.com/{id}").boxed());
 	app.at("/emoji/:id/:name").get(|r| proxy(r, "https://emoji.redditmedia.com/{id}/{name}").boxed());
 	app
+		.at("/emote/:subreddit_id/:filename")
+		.get(|r| proxy(r, "https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/{subreddit_id}/{filename}").boxed());
+	app
 		.at("/preview/:loc/award_images/:fullname/:id")
 		.get(|r| proxy(r, "https://{loc}view.redd.it/award_images/{fullname}/{id}").boxed());
 	app.at("/preview/:loc/:id").get(|r| proxy(r, "https://{loc}view.redd.it/{id}").boxed());
@@ -344,7 +332,7 @@ async fn main() {
 			let sub = req.param("sub").unwrap_or_default();
 			match req.param("id").as_deref() {
 				// Share link
-				Some(id) if (8..12).contains(&id.len()) => match canonical_path(format!("/r/{sub}/s/{id}")).await {
+				Some(id) if (8..12).contains(&id.len()) => match canonical_path(format!("/r/{sub}/s/{id}"), 3).await {
 					Ok(Some(path)) => Ok(redirect(&path)),
 					Ok(None) => error(req, "Post ID is invalid. It may point to a post on a community that has been banned.").await,
 					Err(e) => error(req, &e).await,
@@ -363,7 +351,7 @@ async fn main() {
 				Some("best" | "hot" | "new" | "top" | "rising" | "controversial") => subreddit::community(req).await,
 
 				// Short link for post
-				Some(id) if (5..8).contains(&id.len()) => match canonical_path(format!("/{id}")).await {
+				Some(id) if (5..8).contains(&id.len()) => match canonical_path(format!("/{id}"), 3).await {
 					Ok(path_opt) => match path_opt {
 						Some(path) => Ok(redirect(&path)),
 						None => error(req, "Post ID is invalid. It may point to a post on a community that has been banned.").await,

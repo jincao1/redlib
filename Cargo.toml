@@ -9,13 +9,15 @@ authors = [
     "spikecodes <19519553+spikecodes@users.noreply.github.com>",
 ]
 edition = "2021"
+default-run = "redlib"
 
 [dependencies]
-askama = { version = "0.12.1", default-features = false }
+rinja = { version = "0.3.4", default-features = false }
 cached = { version = "0.51.3", features = ["async"] }
 clap = { version = "4.4.11", default-features = false, features = [
     "std",
     "env",
+    "derive",
 ] }
 regex = "1.10.2"
 serde = { version = "1.0.193", features = ["derive"] }
@@ -31,7 +33,7 @@ time = { version = "0.3.31", features = ["local-offset"] }
 url = "2.5.0"
 rust-embed = { version = "8.1.0", features = ["include-exclude"] }
 libflate = "2.0.0"
-brotli = { version = "6.0.0", features = ["std"] }
+brotli = { version = "7.0.0", features = ["std"] }
 toml = "0.8.8"
 once_cell = "1.19.0"
 serde_yaml = "0.9.29"
@@ -44,6 +46,8 @@ pretty_env_logger = "0.5.0"
 dotenvy = "0.15.7"
 rss = "2.0.7"
 arc-swap = "1.7.1"
+serde_json_path = "0.6.7"
+async-recursion = "1.1.1"
 
 
 [dev-dependencies]
@@ -54,3 +58,11 @@ sealed_test = "1.0.0"
 codegen-units = 1
 lto = true
 strip = "symbols"
+
+[[bin]]
+name = "redlib"
+path = "src/main.rs"
+
+[[bin]]
+name = "scraper"
+path = "src/scraper/main.rs"
