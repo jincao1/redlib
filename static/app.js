@@ -13,11 +13,13 @@ function addCommentToggleEvent() {
     let threads = document.getElementsByClassName("thread");
     for (let thread of threads) {
         thread.addEventListener('click', function (e) {
-            let tagName = e.target.tagName;
             let comment = e.target.closest('.comment_body');
-            if (tagName == 'P' && comment && window.getSelection().toString().length === 0) {
+            if (comment && window.getSelection().toString().length === 0) {
+                let tagName = e.target.tagName;
+                let isLink = ["A", "IMG"].includes(tagName);
                 // parent node is the 'details' node.
-                comment.parentNode.removeAttribute('open');
+                if (!isLink)
+                    comment.parentNode.removeAttribute('open');
             }
         });
     }
