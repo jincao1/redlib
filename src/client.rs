@@ -4,9 +4,8 @@ use futures_lite::future::block_on;
 use futures_lite::{future::Boxed, FutureExt};
 use hyper::client::HttpConnector;
 use hyper::header::HeaderValue;
-use hyper::Client;
-use hyper::{body, body::Buf, header, Body, Method, Request, Response, Uri};
-use hyper_tls::HttpsConnector;
+use hyper::{body, body::Buf, header, Body, Client, Method, Request, Response, Uri};
+use hyper_rustls::HttpsConnector;
 use libflate::gzip;
 use log::{error, trace, warn};
 use once_cell::sync::Lazy;
@@ -31,7 +30,8 @@ const REDDIT_SHORT_URL_BASE_HOST: &str = "redd.it";
 const ALTERNATIVE_REDDIT_URL_BASE: &str = "https://www.reddit.com";
 const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
 
-pub static HTTPS_CONNECTOR: Lazy<HttpsConnector<HttpConnector>> = Lazy::new(HttpsConnector::new);
+pub static HTTPS_CONNECTOR: Lazy<HttpsConnector<HttpConnector>> =
+	Lazy::new(|| hyper_rustls::HttpsConnectorBuilder::new().with_native_roots().https_only().enable_http2().build());
 
 pub static CLIENT: Lazy<Client<HttpsConnector<HttpConnector>>> = Lazy::new(|| Client::builder().build::<_, Body>(HTTPS_CONNECTOR.clone()));
 
@@ -231,25 +231,37 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 
 	// Build request to Reddit. When making a GET, request gzip compression.
 	// (Reddit doesn't do brotli yet.)
-	let builder = Request::builder()
-		.method(method)
-		.uri(&url)
-		.header("User-Agent", user_agent)
-		.header("Client-Vendor-Id", vendor_id)
-		.header("X-Reddit-Device-Id", device_id)
-		.header("x-reddit-loid", loid)
-		.header("Host", host)
-		.header("Authorization", &format!("Bearer {token}"))
-		.header("Accept-Encoding", if method == Method::GET { "gzip" } else { "identity" })
-		.header(
+	let mut headers = vec![
+		("User-Agent", user_agent),
+		("Client-Vendor-Id", vendor_id),
+		("X-Reddit-Device-Id", device_id),
+		("x-reddit-loid", loid),
+		("Host", host.to_string()),
+		("Authorization", format!("Bearer {token}")),
+		("Accept-Encoding", if method == Method::GET { "gzip".into() } else { "identity".into() }),
+		(
 			"Cookie",
 			if quarantine {
-				"_options=%7B%22pref_quarantine_optin%22%3A%20true%2C%20%22pref_gated_sr_optin%22%3A%20true%7D"
+				"_options=%7B%22pref_quarantine_optin%22%3A%20true%2C%20%22pref_gated_sr_optin%22%3A%20true%7D".into()
 			} else {
-				""
+				"".into()
 			},
-		)
-		.body(Body::empty());
+		),
+		("X-Reddit-Width", fastrand::u32(300..500).to_string()),
+		("X-Reddit-DPR", "2".to_owned()),
+		("Device-Name", format!("Android {}", fastrand::u8(9..=14))),
+	];
+
+	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
+	fastrand::shuffle(&mut headers);
+
+	let mut builder = Request::builder().method(method).uri(&url);
+
+	for (key, value) in headers {
+		builder = builder.header(key, value);
+	}
+
+	let builder = builder.body(Body::empty());
 
 	async move {
 		match builder {
