@@ -7,18 +7,20 @@ use crate::config::{self, get_setting};
 //
 use crate::{client::json, server::RequestExt};
 use cookie::Cookie;
-use htmlescape::decode_html;
 use hyper::{Body, Request, Response};
+use libflate::deflate::{Decoder, Encoder};
 use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use revision::revisioned;
 use rinja::Template;
 use rust_embed::RustEmbed;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use serde_json_path::{JsonPath, JsonPathExt};
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::io::{Read, Write};
 use std::str::FromStr;
 use std::string::ToString;
 use time::{macros::format_description, Duration, OffsetDateTime};
@@ -385,7 +387,7 @@ impl Post {
 			let awards = Awards::parse(&data["all_awardings"]);
 
 			// selftext_html is set for text posts when browsing.
-			let mut body = rewrite_urls(&decode_html(&val(post, "selftext_html")).unwrap());
+			let mut body = rewrite_urls(&val(post, "selftext_html"));
 			if body.is_empty() {
 				body = rewrite_urls(&val(post, "body_html"));
 			}
@@ -551,6 +553,14 @@ pub struct ErrorTemplate {
 	pub url: String,
 }
 
+#[derive(Template)]
+#[template(path = "info.html")]
+pub struct InfoTemplate {
+	pub msg: String,
+	pub prefs: Preferences,
+	pub url: String,
+}
+
 /// Template for NSFW landing page. The landing page is displayed when a page's
 /// content is wholly NSFW, but a user has not enabled the option to view NSFW
 /// posts.
@@ -610,32 +620,56 @@ pub struct Params {
 	pub before: Option<String>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[revisioned(revision = 1)]
 pub struct Preferences {
-	#[serde(skip)]
+	#[revision(start = 1)]
+	#[serde(skip_serializing, skip_deserializing)]
 	pub available_themes: Vec<String>,
+	#[revision(start = 1)]
 	pub theme: String,
+	#[revision(start = 1)]
 	pub front_page: String,
+	#[revision(start = 1)]
 	pub layout: String,
+	#[revision(start = 1)]
 	pub wide: String,
+	#[revision(start = 1)]
 	pub blur_spoiler: String,
+	#[revision(start = 1)]
 	pub show_nsfw: String,
+	#[revision(start = 1)]
 	pub blur_nsfw: String,
+	#[revision(start = 1)]
 	pub hide_hls_notification: String,
+	#[revision(start = 1)]
 	pub video_quality: String,
+	#[revision(start = 1)]
 	pub hide_sidebar_and_summary: String,
+	#[revision(start = 1)]
 	pub use_hls: String,
+	#[revision(start = 1)]
 	pub autoplay_videos: String,
+	#[revision(start = 1)]
 	pub fixed_navbar: String,
+	#[revision(start = 1)]
 	pub disable_visit_reddit_confirmation: String,
+	#[revision(start = 1)]
 	pub comment_sort: String,
+	#[revision(start = 1)]
 	pub post_sort: String,
-	#[serde(serialize_with = "serialize_vec_with_plus")]
+	#[revision(start = 1)]
+	#[serde(serialize_with = "serialize_vec_with_plus", deserialize_with = "deserialize_vec_with_plus")]
 	pub subscriptions: Vec<String>,
-	#[serde(serialize_with = "serialize_vec_with_plus")]
+	#[revision(start = 1)]
+	#[serde(serialize_with = "serialize_vec_with_plus", deserialize_with = "deserialize_vec_with_plus")]
 	pub filters: Vec<String>,
+	#[revision(start = 1)]
 	pub hide_awards: String,
+	#[revision(start = 1)]
 	pub hide_score: String,
+	#[revision(start = 1)]
+	pub remove_default_feeds: String,
 }
 
 fn serialize_vec_with_plus<S>(vec: &[String], serializer: S) -> Result<S::Ok, S::Error>
@@ -643,6 +677,17 @@ where
 	S: Serializer,
 {
 	serializer.serialize_str(&vec.join("+"))
+}
+
+fn deserialize_vec_with_plus<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+	D: Deserializer<'de>,
+{
+	let string = String::deserialize(deserializer)?;
+	if string.is_empty() {
+		return Ok(Vec::new());
+	}
+	Ok(string.split('+').map(|s| s.to_string()).collect())
 }
 
 #[derive(RustEmbed)]
@@ -682,12 +727,36 @@ impl Preferences {
 			filters: setting(req, "filters").split('+').map(String::from).filter(|s| !s.is_empty()).collect(),
 			hide_awards: setting(req, "hide_awards"),
 			hide_score: setting(req, "hide_score"),
+			remove_default_feeds: setting(req, "remove_default_feeds"),
 		}
 	}
 
 	pub fn to_urlencoded(&self) -> Result<String, String> {
 		serde_urlencoded::to_string(self).map_err(|e| e.to_string())
 	}
+
+	pub fn to_bincode(&self) -> Result<Vec<u8>, String> {
+		bincode::serialize(self).map_err(|e| e.to_string())
+	}
+	pub fn to_compressed_bincode(&self) -> Result<Vec<u8>, String> {
+		deflate_compress(self.to_bincode()?)
+	}
+	pub fn to_bincode_str(&self) -> Result<String, String> {
+		Ok(base2048::encode(&self.to_compressed_bincode()?))
+	}
+}
+
+pub fn deflate_compress(i: Vec<u8>) -> Result<Vec<u8>, String> {
+	let mut e = Encoder::new(Vec::new());
+	e.write_all(&i).map_err(|e| e.to_string())?;
+	e.finish().into_result().map_err(|e| e.to_string())
+}
+
+pub fn deflate_decompress(i: Vec<u8>) -> Result<Vec<u8>, String> {
+	let mut decoder = Decoder::new(&i[..]);
+	let mut out = Vec::new();
+	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {}", e))?;
+	Ok(out)
 }
 
 /// Gets a `HashSet` of filters from the cookie in the given `Request`.
@@ -1265,6 +1334,20 @@ pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, Stri
 	Ok(Response::builder().status(404).header("content-type", "text/html").body(body.into()).unwrap_or_default())
 }
 
+/// Renders a generic info landing page.
+pub async fn info(req: Request<Body>, msg: &str) -> Result<Response<Body>, String> {
+	let url = req.uri().to_string();
+	let body = InfoTemplate {
+		msg: msg.to_string(),
+		prefs: Preferences::new(&req),
+		url,
+	}
+	.render()
+	.unwrap_or_default();
+
+	Ok(Response::builder().status(200).header("content-type", "text/html").body(body.into()).unwrap_or_default())
+}
+
 /// Returns true if the config/env variable `REDLIB_SFW_ONLY` carries the
 /// value `on`.
 ///
@@ -1463,10 +1546,11 @@ mod tests {
 			filters: vec![],
 			hide_awards: "off".to_owned(),
 			hide_score: "off".to_owned(),
+			remove_default_feeds: "off".to_owned(),
 		};
 		let urlencoded = serde_urlencoded::to_string(prefs).expect("Failed to serialize Prefs");
 
-		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off")
+		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off&remove_default_feeds=off");
 	}
 }
 
@@ -1558,4 +1642,53 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 </div>"#;
 
 	assert_eq!(render_bullet_lists(input), output);
+}
+
+#[test]
+fn test_default_prefs_serialization_loop_json() {
+	let prefs = Preferences::default();
+	let serialized = serde_json::to_string(&prefs).unwrap();
+	let deserialized: Preferences = serde_json::from_str(&serialized).unwrap();
+	assert_eq!(prefs, deserialized);
+}
+
+#[test]
+fn test_default_prefs_serialization_loop_bincode() {
+	let prefs = Preferences::default();
+	test_round_trip(&prefs, false);
+	test_round_trip(&prefs, true);
+}
+
+static KNOWN_GOOD_CONFIGS: &[&str] = &[
+	"ఴӅβØØҞÉဏႢձĬ༧ȒʯऌԔӵ୮༏",
+	"ਧՊΥÀÃǎƱГ۸ඣമĖฤ႙ʟาúໜϾௐɥঀĜໃહཞઠѫҲɂఙ࿔ǲઉƲӟӻĻฅΜδ໖ԜǗဖငƦơ৶Ą௩ԹʛใЛʃශаΏ",
+	"ਧԩΥÀÃÎŠ౭൩ඔႠϼҭöҪƸռઇԾॐნɔາǒՍҰच௨ಖມŃЉŐདƦ๙ϩএఠȝഽйʮჯඒϰळՋ௮ສ৵ऎΦѧਹಧଟƙŃ३î༦ŌပղयƟแҜ།",
+];
+
+#[test]
+fn test_known_good_configs_deserialization() {
+	for config in KNOWN_GOOD_CONFIGS {
+		let bytes = base2048::decode(config).unwrap();
+		let decompressed = deflate_decompress(bytes).unwrap();
+		assert!(bincode::deserialize::<Preferences>(&decompressed).is_ok());
+	}
+}
+
+#[test]
+fn test_known_good_configs_full_round_trip() {
+	for config in KNOWN_GOOD_CONFIGS {
+		let bytes = base2048::decode(config).unwrap();
+		let decompressed = deflate_decompress(bytes).unwrap();
+		let prefs: Preferences = bincode::deserialize(&decompressed).unwrap();
+		test_round_trip(&prefs, false);
+		test_round_trip(&prefs, true);
+	}
+}
+
+fn test_round_trip(input: &Preferences, compression: bool) {
+	let serialized = bincode::serialize(input).unwrap();
+	let compressed = if compression { deflate_compress(serialized).unwrap() } else { serialized };
+	let decompressed = if compression { deflate_decompress(compressed).unwrap() } else { compressed };
+	let deserialized: Preferences = bincode::deserialize(&decompressed).unwrap();
+	assert_eq!(*input, deserialized);
 }
