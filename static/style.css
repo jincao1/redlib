@@ -560,6 +560,10 @@ aside {
     cursor: pointer;
 }
 
+.copy,
+.import {
+    margin: 5px;
+}
 .subscribe,
 .filter,
 .copy,
