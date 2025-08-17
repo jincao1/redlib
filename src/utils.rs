@@ -755,7 +755,7 @@ pub fn deflate_compress(i: Vec<u8>) -> Result<Vec<u8>, String> {
 pub fn deflate_decompress(i: Vec<u8>) -> Result<Vec<u8>, String> {
 	let mut decoder = Decoder::new(&i[..]);
 	let mut out = Vec::new();
-	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {}", e))?;
+	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
 	Ok(out)
 }
 
@@ -926,9 +926,9 @@ pub fn setting(req: &Request<Body>, name: &str) -> String {
 		let mut subscriptions_number = 1;
 
 		// While whatever subscriptionsNUMBER cookie we're looking at has a value
-		while req.cookie(&format!("subscriptions{}", subscriptions_number)).is_some() {
+		while req.cookie(&format!("subscriptions{subscriptions_number}")).is_some() {
 			// Push whatever subscriptionsNUMBER cookie we're looking at into the subscriptions string
-			subscriptions.push_str(req.cookie(&format!("subscriptions{}", subscriptions_number)).unwrap().value());
+			subscriptions.push_str(req.cookie(&format!("subscriptions{subscriptions_number}")).unwrap().value());
 
 			// Increment subscription cookie number
 			subscriptions_number += 1;
@@ -951,9 +951,9 @@ pub fn setting(req: &Request<Body>, name: &str) -> String {
 		let mut filters_number = 1;
 
 		// While whatever filtersNUMBER cookie we're looking at has a value
-		while req.cookie(&format!("filters{}", filters_number)).is_some() {
+		while req.cookie(&format!("filters{filters_number}")).is_some() {
 			// Push whatever filtersNUMBER cookie we're looking at into the filters string
-			filters.push_str(req.cookie(&format!("filters{}", filters_number)).unwrap().value());
+			filters.push_str(req.cookie(&format!("filters{filters_number}")).unwrap().value());
 
 			// Increment filters cookie number
 			filters_number += 1;
@@ -1385,14 +1385,8 @@ pub fn disable_indexing() -> bool {
 }
 
 // Determines if a request shoud redirect to a nsfw landing gate.
-pub fn should_be_nsfw_gated(req: &Request<Body>, req_url: &str) -> bool {
-	let sfw_instance = sfw_only();
-	let gate_nsfw = (setting(req, "show_nsfw") != "on") || sfw_instance;
-
-	// Nsfw landing gate should not be bypassed on a sfw only instance,
-	let bypass_gate = !sfw_instance && req_url.contains("&bypass_nsfw_landing");
-
-	gate_nsfw && !bypass_gate
+pub fn should_be_nsfw_gated(req: &Request<Body>, _req_url: &str) -> bool {
+	(setting(req, "show_nsfw") != "on") || sfw_only()
 }
 
 /// Renders the landing page for NSFW content when the user has not enabled
@@ -1628,11 +1622,11 @@ fn test_rewriting_bullet_list() {
 - Super resolution + Off (it looks horrible anyway)
 - Sharpness 50 (default one I think)
 - Black level High (low messes up gray colors)
-- DFC Off 
+- DFC Off
 - Response Time Middle (personal preference, <a href="https://www.blurbusters.com/">https://www.blurbusters.com/</a> show horrible overdrive with it on high)
 - Freesync doesn&#39;t matter
 - Black stabilizer 50
-- Gamma setting on 0 
+- Gamma setting on 0
 - Color Temp Medium
 How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or the panel is pretty good, 0 bleed for me, just the usual IPS glow. How about the pixels? I see the pixels even at one meter away, especially on Microsoft Edge&#39;s icon for example, the blue background is just blocky, don&#39;t know why.</p>
 </div>"#;

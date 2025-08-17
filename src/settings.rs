@@ -117,7 +117,14 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 	let form = url::form_urlencoded::parse(query).collect::<HashMap<_, _>>();
 
 	let path = match form.get("redirect") {
-		Some(value) => format!("/{}", value.replace("%26", "&").replace("%23", "#")),
+		Some(value) => {
+			let value = value.replace("%26", "&").replace("%23", "#");
+			if value.starts_with('/') {
+				value
+			} else {
+				format!("/{value}")
+			}
+		}
 		None => "/".to_string(),
 	};
 
@@ -163,7 +170,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 			let subscriptions_cookie = if subscriptions_number == 0 {
 				"subscriptions".to_string()
 			} else {
-				format!("subscriptions{}", subscriptions_number)
+				format!("subscriptions{subscriptions_number}")
 			};
 
 			response.insert_cookie(
@@ -214,7 +221,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 			let filters_cookie = if filters_number == 0 {
 				"filters".to_string()
 			} else {
-				format!("filters{}", filters_number)
+				format!("filters{filters_number}")
 			};
 
 			response.insert_cookie(
@@ -268,7 +275,7 @@ pub async fn update(req: Request<Body>) -> Result<Response<Body>, String> {
 pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, String> {
 	let body = hyper::body::to_bytes(req.into_body())
 		.await
-		.map_err(|e| format!("Failed to get bytes from request body: {}", e))?;
+		.map_err(|e| format!("Failed to get bytes from request body: {e}"))?;
 
 	if body.len() > 1024 * 1024 {
 		return Err("Request body too large".to_string());
@@ -283,12 +290,12 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 
 	let out = timeout(std::time::Duration::from_secs(1), async { deflate_decompress(bytes) })
 		.await
-		.map_err(|e| format!("Failed to decompress bytes: {}", e))??;
+		.map_err(|e| format!("Failed to decompress bytes: {e}"))??;
 
 	let mut prefs: Preferences = timeout(std::time::Duration::from_secs(1), async { bincode::deserialize(&out) })
 		.await
-		.map_err(|e| format!("Failed to deserialize preferences: {}", e))?
-		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {}", e))?;
+		.map_err(|e| format!("Failed to deserialize preferences: {e}"))?
+		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
 
 	prefs.available_themes = vec![];
 
