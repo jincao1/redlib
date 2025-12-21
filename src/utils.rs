@@ -705,6 +705,8 @@ impl Preferences {
 			let chunks: Vec<&str> = file.as_ref().split(".css").collect();
 			themes.push(chunks[0].to_owned());
 		}
+		let mut subscriptions: Vec<String> = setting(req, "subscriptions").split('+').map(String::from).filter(|s| !s.is_empty()).collect();
+		subscriptions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
 		Self {
 			available_themes: themes,
 			theme: setting(req, "theme"),
@@ -723,7 +725,7 @@ impl Preferences {
 			disable_visit_reddit_confirmation: setting(req, "disable_visit_reddit_confirmation"),
 			comment_sort: setting(req, "comment_sort"),
 			post_sort: setting(req, "post_sort"),
-			subscriptions: setting(req, "subscriptions").split('+').map(String::from).filter(|s| !s.is_empty()).collect(),
+			subscriptions,
 			filters: setting(req, "filters").split('+').map(String::from).filter(|s| !s.is_empty()).collect(),
 			hide_awards: setting(req, "hide_awards"),
 			hide_score: setting(req, "hide_score"),
