@@ -30,7 +30,7 @@
 		<!-- Video quality -->
 		<div id="video_quality" data-value="{{ prefs.video_quality }}"></div>
 		{% endblock %}
-		<script src="/app.js"></script>
+		<script src="/app.js?v={{ env!("BUILD_TIME") }}"></script>
 		</head>
 	<body class="
 		{% if prefs.layout != "" %}{{ prefs.layout }}{% endif %}

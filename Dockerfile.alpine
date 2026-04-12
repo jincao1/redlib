@@ -5,25 +5,25 @@ ARG ALPINE_VERSION=3.23
 ########################
 ## builder image
 ########################
-FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder
+FROM ghcr.io/rust-cross/rust-musl-cross:aarch64-unknown-linux-musl AS builder
 
 RUN apt-get update \
     && apt-get -y install git cmake perl pkg-config libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup target add x86_64-unknown-linux-musl
+RUN rustup target add aarch64-unknown-linux-musl
 
 WORKDIR /redlib
 
 # download (most) dependencies in their own layer
 COPY Cargo.lock Cargo.toml ./
 RUN mkdir src && echo "fn main() { panic!(\"why am i running?\") }" > src/main.rs
-RUN cargo build --release --locked --bin redlib --target x86_64-unknown-linux-musl
+RUN cargo build --release --locked --bin redlib --target aarch64-unknown-linux-musl
 RUN rm ./src/main.rs && rmdir ./src
 
 # copy the source and build the redlib binary
 COPY . ./
-RUN cargo build --release --locked --bin redlib --target x86_64-unknown-linux-musl
+RUN cargo build --release --locked --bin redlib --target aarch64-unknown-linux-musl
 RUN echo "finished building redlib!"
 
 ########################
@@ -32,7 +32,7 @@ RUN echo "finished building redlib!"
 FROM alpine:${ALPINE_VERSION} AS release
 
 # Import redlib binary from builder
-COPY --from=builder /redlib/target/x86_64-unknown-linux-musl/release/redlib /usr/local/bin/redlib
+COPY --from=builder /redlib/target/aarch64-unknown-linux-musl/release/redlib /usr/local/bin/redlib
 
 # Add non-root user for running redlib
 RUN adduser --home /nonexistent --no-create-home --disabled-password redlib

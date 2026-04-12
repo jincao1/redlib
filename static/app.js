@@ -17,15 +17,34 @@ function addCommentToggleEvent() {
             if (comment && window.getSelection().toString().length === 0) {
                 let tagName = e.target.tagName;
                 let isLink = ["A", "IMG"].includes(tagName);
+                let isComment = e.target.classList.contains('md-spoiler-text');
                 // parent node is the 'details' node.
-                if (!isLink)
+                if (!isLink && !isComment)
                     comment.parentNode.removeAttribute('open');
             }
         });
     }
 }
 
-window.onload = function () {
+function rewriteGiphyLinks() {
+    document.querySelectorAll('a[href*="giphy.com/gifs/"]').forEach(link => {
+        if (link.querySelector('img')) return;
+
+        const id = link.href.split('/gifs/')[1].split('-').pop();
+        const gifUrl = `https://media.giphy.com/media/${id}/giphy.webp`;
+
+        const img = document.createElement('img');
+        img.src = gifUrl;
+        img.loading = 'lazy';
+
+        link.href = link;
+        link.innerHTML = '';
+        link.appendChild(img);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
     document.getElementById("search_icon").onclick = toggleSearch;
     addCommentToggleEvent();
-}
+    rewriteGiphyLinks();
+});
