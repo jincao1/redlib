@@ -43,8 +43,17 @@ function rewriteGiphyLinks() {
     });
 }
 
+function addNavBarHandler() {
+    var navbar = document.getElementById('feeds');
+    document.addEventListener('click', (e) => {
+        if (!navbar.contains(e.target)) {
+            navbar.removeAttribute('open');
+        }
+    });
+}
 document.addEventListener('DOMContentLoaded', function () {
     document.getElementById("search_icon").onclick = toggleSearch;
     addCommentToggleEvent();
     rewriteGiphyLinks();
+    addNavBarHandler();
 });
