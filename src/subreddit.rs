@@ -606,8 +606,16 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 	// Get subreddit link
 	let subreddit_link: String = format!("{}/r/{sub}", config::get_setting("REDLIB_FULL_URL").unwrap_or_default());
 
-	// Get subreddit data
-	let subreddit = subreddit(&sub, false).await?;
+	// Get subreddit data. r/all and r/popular have no metadata
+	let subreddit = if sub == "all" || sub == "popular" {
+		Subreddit {
+			name: sub.clone(),
+			title: format!("r/{sub}"),
+			..Subreddit::default()
+		}
+	} else {
+		subreddit(&sub, false).await?
+	};
 
 	// Get posts
 	let (posts, _) = Post::fetch(&path, false).await?;
