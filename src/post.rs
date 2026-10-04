@@ -5,12 +5,13 @@ use crate::config::get_setting;
 use crate::server::RequestExt;
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
-	clean_url, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, setting, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post,
-	Preferences,
+	build_rss_comment_item, build_rss_item, clean_url, enable_rss, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, rss_page_link, rss_response,
+	setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
 };
 use askama::Template;
 use hyper::{Request, Response};
 use regex::Regex;
+use rss::ChannelBuilder;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -123,6 +124,59 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 			} else {
 				error(req, &msg).await
 			}
+		}
+	}
+}
+
+/// Feed for a post and its comments, built from the JSON API.
+/// Mirrors Reddit's feed URLs: `/r/rust/comments/abc123.rss`, `/comments/abc123/title/.rss`.
+/// Comments are flattened and fetched newest first unless `?sort=` says otherwise.
+pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
+	if !enable_rss() {
+		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
+	}
+
+	let id = req.param("id").unwrap_or_default();
+	let mut query = req.uri().query().unwrap_or_default().to_string();
+	if param(&format!("?{query}"), "sort").is_none() {
+		query.push_str("&sort=new");
+	}
+	let response = json(format!("/comments/{id}.json?{query}&raw_json=1"), false).await?;
+
+	let post = parse_post(&response[0]["data"]["children"][0]).await;
+	if post.nsfw && sfw_only() {
+		return error(req, "NSFW content is disabled on this instance.").await;
+	}
+
+	let mut items = vec![(post.created_ts, build_rss_item(&post))];
+	collect_rss_comments(&response[1], &post.title, &mut items);
+	items.sort_by_key(|(created_ts, _)| std::cmp::Reverse(*created_ts));
+
+	let channel = ChannelBuilder::default()
+		.title(format!("{} - r/{}", post.title, post.community))
+		.link(rss_page_link(&req))
+		.items(items.into_iter().map(|(_, item)| item).collect::<Vec<_>>())
+		.build();
+
+	Ok(rss_response(&channel))
+}
+
+/// Flattens a comment tree into feed items, paired with their creation time for sorting.
+fn collect_rss_comments(listing: &serde_json::Value, link_title: &str, items: &mut Vec<(u64, rss::Item)>) {
+	for comment in listing["data"]["children"].as_array().into_iter().flatten() {
+		// Skip "load more comments" stubs
+		if comment["kind"] != "t1" {
+			continue;
+		}
+		let data = &comment["data"];
+		let created_ts = data["created_utc"].as_f64().unwrap_or_default().round() as u64;
+		let body = rewrite_emotes(&data["media_metadata"], val(comment, "body_html"));
+		items.push((
+			created_ts,
+			build_rss_comment_item(&val(comment, "author"), link_title, &val(comment, "permalink"), &body, created_ts),
+		));
+		if data["replies"].is_object() {
+			collect_rss_comments(&data["replies"], link_title, items);
 		}
 	}
 }

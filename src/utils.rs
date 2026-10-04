@@ -14,7 +14,7 @@ use libflate::deflate::{Decoder, Encoder};
 use log::error;
 use regex::Regex;
 use revision::{revisioned, Error};
-use rss::{Enclosure, Guid, Item};
+use rss::{Channel, Enclosure, Guid, Item};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -1641,8 +1641,122 @@ pub fn to_absolute_url(relative_path: &str) -> String {
 // RSS Feed Helpers
 // =====================================================
 
-/// Build an RSS item from a Post, with proper enclosure, GUID, and media embed
+/// Sorts that can follow a subreddit or the front page in a feed URL, e.g. `/r/rust/top.rss`.
+pub const RSS_LISTING_SORTS: [&str; 6] = ["hot", "new", "top", "rising", "controversial", "best"];
+
+/// Listings that can follow a user in a feed URL, e.g. `/user/spez/comments.rss`.
+pub const RSS_USER_LISTINGS: [&str; 3] = ["overview", "submitted", "comments"];
+
+/// Path of the HTML page a feed mirrors: `/r/rust/top.rss` and `/r/rust/top/.rss` both become `/r/rust/top`.
+pub fn rss_page_path(req: &Request<Body>) -> String {
+	let path = req.uri().path();
+	let path = path.strip_suffix(".rss").unwrap_or(path).trim_end_matches('/');
+	if path.is_empty() {
+		"/".to_string()
+	} else {
+		path.to_string()
+	}
+}
+
+/// Absolute link to the HTML page a feed mirrors, including the feed's query string.
+pub fn rss_page_link(req: &Request<Body>) -> String {
+	let path = rss_page_path(req);
+	match req.uri().query() {
+		Some(query) => to_absolute_url(&format!("{path}?{query}")),
+		None => to_absolute_url(&path),
+	}
+}
+
+/// Builds the RSS feed URL matching a Redlib page, for the RSS buttons and feed autodiscovery.
+/// Keeps the query parameters that change what the feed contains (sort, timeframe, search query)
+/// and drops pagination. Returns `None` if RSS is disabled or the page has no feed.
+pub fn rss_feed_url(url: &str, prefs: &Preferences) -> Option<String> {
+	if !enable_rss() {
+		return None;
+	}
+	page_feed_url(url, &prefs.front_page, &prefs.subscriptions)
+}
+
+fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String]) -> Option<String> {
+	let parsed = Url::parse(&format!("https://redlib.invalid{url}")).ok()?;
+	let segments: Vec<&str> = parsed.path().split('/').filter(|s| !s.is_empty()).collect();
+	let query: Vec<(String, String)> = parsed.query_pairs().into_owned().collect();
+	let keep_query = |keys: &[&str]| -> String {
+		let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+		for (k, v) in &query {
+			if keys.contains(&k.as_str()) && !v.is_empty() {
+				serializer.append_pair(k, v);
+			}
+		}
+		let query = serializer.finish();
+		if query.is_empty() {
+			query
+		} else {
+			format!("?{query}")
+		}
+	};
+	let listing_query = || keep_query(&["sort", "t"]);
+	let sorted = |base: &str, sort: Option<&str>| match sort {
+		Some(sort) => format!("{base}/{sort}.rss"),
+		None => format!("{base}.rss"),
+	};
+
+	// Search for subreddits and users has no posts to put in a feed
+	if segments.last() == Some(&"search") && query.iter().any(|(k, v)| k == "type" && v != "link") {
+		return None;
+	}
+
+	let path = match segments.as_slice() {
+		// Front page. Feed readers don't send cookies, so point at the user's front page or subscriptions directly.
+		[] | [_] if segments.first().is_none_or(|s| RSS_LISTING_SORTS.contains(s)) => {
+			let sort = segments.first().copied();
+			let sub = if !front_page.is_empty() && front_page != "default" {
+				front_page.to_string()
+			} else {
+				subscriptions.join("+")
+			};
+			let feed = match (sub.is_empty(), sort) {
+				(true, Some(sort)) => format!("/{sort}.rss"),
+				(true, None) => "/.rss".to_string(),
+				(false, sort) => sorted(&format!("/r/{sub}"), sort),
+			};
+			feed + &listing_query()
+		}
+		["search"] => format!("/search.rss{}", keep_query(&["q", "sort", "t", "restrict_sr"])),
+		["r", sub, "search"] => format!("/r/{sub}/search.rss{}", keep_query(&["q", "sort", "t", "restrict_sr"])),
+		["r", sub] => sorted(&format!("/r/{sub}"), None) + &listing_query(),
+		["r", sub, sort] if RSS_LISTING_SORTS.contains(sort) => sorted(&format!("/r/{sub}"), Some(sort)) + &listing_query(),
+		["r", sub, "comments", id, ..] => format!("/r/{sub}/comments/{id}.rss{}", keep_query(&["sort"])),
+		["comments", id, ..] => format!("/comments/{id}.rss{}", keep_query(&["sort"])),
+		["user" | "u", name] => format!("/user/{name}.rss{}", listing_query()),
+		["user" | "u", name, listing] if RSS_USER_LISTINGS.contains(listing) => format!("/user/{name}/{listing}.rss{}", listing_query()),
+		_ => return None,
+	};
+
+	Some(path)
+}
+
+/// Converts listing posts to feed items. NSFW items are dropped on SFW-only instances.
+pub fn build_rss_items(posts: &[Post]) -> Vec<Item> {
+	posts.iter().filter(|post| !(sfw_only() && post.nsfw)).map(build_rss_item).collect()
+}
+
+/// Serializes a feed into an HTTP response.
+pub fn rss_response(channel: &Channel) -> Response<Body> {
+	let mut res = Response::new(Body::from(channel.to_string().into_bytes()));
+	res
+		.headers_mut()
+		.insert(hyper::header::CONTENT_TYPE, hyper::header::HeaderValue::from_static("application/rss+xml"));
+	res
+}
+
+/// Build an RSS item from a Post, with proper enclosure, GUID, and media embed.
+/// Comments in a listing (e.g. `/r/rust/comments.json`) come through as Posts without a title.
 pub fn build_rss_item(post: &Post) -> Item {
+	if post.title.is_empty() && !post.link_title.is_empty() {
+		return build_rss_comment_item(&post.author.name, &post.link_title, &post.permalink, &post.body, post.created_ts);
+	}
+
 	let mut item = Item {
 		title: Some(post.title.to_string()),
 		link: Some(to_absolute_url(&post.permalink)),
@@ -1665,7 +1779,7 @@ pub fn build_rss_item(post: &Post) -> Item {
 	// Build content:encoded — embed media + body
 	let image_html = build_media_html(post);
 	let content = if !image_html.is_empty() || !post.body.is_empty() {
-		format!("{}{}", image_html, post.body)
+		format!("{}{}", image_html, absolute_html_urls(&post.body))
 	} else {
 		description_str
 	};
@@ -1677,6 +1791,38 @@ pub fn build_rss_item(post: &Post) -> Item {
 	}
 
 	item
+}
+
+/// Build an RSS item for a comment. `body` is the comment's HTML with URLs already rewritten.
+pub fn build_rss_comment_item(author: &str, link_title: &str, permalink: &str, body: &str, created_ts: u64) -> Item {
+	let link = to_absolute_url(permalink);
+	let body = absolute_html_urls(body);
+	Item {
+		title: Some(format!("u/{author} on {link_title}")),
+		link: Some(link.clone()),
+		author: Some(author.to_string()),
+		pub_date: Some(DateTime::from_timestamp(created_ts as i64, 0).unwrap_or_default().to_rfc2822()),
+		guid: Some(Guid { value: link, permalink: true }),
+		description: Some(body.clone()),
+		content: Some(body),
+		..Default::default()
+	}
+}
+
+static RELATIVE_HTML_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(href|src)="/([^/])"#).unwrap());
+
+/// Feed readers don't know the instance's address, so point Redlib's relative links
+/// (`/r/...`, `/preview/...`) at `REDLIB_FULL_URL`. Protocol-relative `//host` links are left alone.
+fn absolute_html_urls(html: &str) -> String {
+	prefix_relative_urls(html, &config::get_setting("REDLIB_FULL_URL").unwrap_or_default())
+}
+
+fn prefix_relative_urls(html: &str, base: &str) -> String {
+	let base = base.trim_end_matches('/');
+	if base.is_empty() {
+		return html.to_string();
+	}
+	RELATIVE_HTML_URL.replace_all(html, format!("$1=\"{base}/$2").as_str()).into_owned()
 }
 
 /// Generate the HTML for embedding media (images/videos) in RSS content
@@ -1744,6 +1890,7 @@ fn get_mime_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
 	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
+	use super::{page_feed_url, prefix_relative_urls};
 
 	#[test]
 	fn format_num_works() {
@@ -2044,5 +2191,46 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 		let code = prefs.to_bincode_str().unwrap();
 		let bytes = deflate_decompress(base2048::decode(&code).unwrap()).unwrap();
 		assert_eq!(Preferences::from_bincode(&bytes).unwrap(), prefs);
+	}
+
+	#[test]
+	fn page_feed_url_maps_pages_to_feeds() {
+		let feed = |url: &str| page_feed_url(url, "", &[]);
+		assert_eq!(feed("/"), Some("/.rss".to_string()));
+		assert_eq!(feed("/top?t=week&after=t3_x"), Some("/top.rss?t=week".to_string()));
+		assert_eq!(feed("/r/rust"), Some("/r/rust.rss".to_string()));
+		assert_eq!(feed("/r/SkincareAddiction/top?t=year"), Some("/r/SkincareAddiction/top.rss?t=year".to_string()));
+		assert_eq!(feed("/r/rust+linux/new"), Some("/r/rust+linux/new.rss".to_string()));
+		assert_eq!(feed("/r/rust/wiki"), None);
+		assert_eq!(
+			feed("/r/rust/comments/abc123/some_title/def456?sort=top"),
+			Some("/r/rust/comments/abc123.rss?sort=top".to_string())
+		);
+		assert_eq!(feed("/comments/abc123"), Some("/comments/abc123.rss".to_string()));
+		assert_eq!(feed("/u/spez"), Some("/user/spez.rss".to_string()));
+		assert_eq!(feed("/user/spez/comments?sort=top&t=all"), Some("/user/spez/comments.rss?sort=top&t=all".to_string()));
+		assert_eq!(feed("/user/spez/saved"), None);
+		assert_eq!(feed("/search?q=rust+lang&sort=new&after=t3_x"), Some("/search.rss?q=rust+lang&sort=new".to_string()));
+		assert_eq!(feed("/r/rust/search?q=async&restrict_sr=on"), Some("/r/rust/search.rss?q=async&restrict_sr=on".to_string()));
+		assert_eq!(feed("/search?q=rust&type=sr_user"), None);
+		assert_eq!(feed("/settings"), None);
+	}
+
+	#[test]
+	fn page_feed_url_front_page_uses_preferences() {
+		let subs = vec!["rust".to_string(), "linux".to_string()];
+		assert_eq!(page_feed_url("/", "", &subs), Some("/r/rust+linux.rss".to_string()));
+		assert_eq!(page_feed_url("/top?t=day", "default", &subs), Some("/r/rust+linux/top.rss?t=day".to_string()));
+		assert_eq!(page_feed_url("/new", "all", &subs), Some("/r/all/new.rss".to_string()));
+	}
+
+	#[test]
+	fn prefix_relative_urls_works() {
+		let html = r#"<a href="/r/rust">r/rust</a><img src="/preview/pre/x.png"><a href="//example.com">x</a><a href="https://a.b/c">y</a>"#;
+		assert_eq!(
+			prefix_relative_urls(html, "https://redlib.example/"),
+			r#"<a href="https://redlib.example/r/rust">r/rust</a><img src="https://redlib.example/preview/pre/x.png"><a href="//example.com">x</a><a href="https://a.b/c">y</a>"#
+		);
+		assert_eq!(prefix_relative_urls(html, ""), html);
 	}
 }

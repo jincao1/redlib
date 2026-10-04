@@ -339,6 +339,11 @@ impl Server {
 				path.pop();
 			}
 
+			// Reddit permalinks end in a slash, so feed URLs are often written `/r/rust/top/.rss`
+			if path != "/.rss" && path.ends_with("/.rss") {
+				path.replace_range(path.len() - "/.rss".len().., ".rss");
+			}
+
 			// Replace HEAD with GET for routing
 			let (method, is_head) = match req.method() {
 				&Method::HEAD => (&Method::GET, true),

@@ -9,6 +9,7 @@ use crate::{
 use askama::Template;
 use hyper::{Request, Response};
 use regex::Regex;
+use rss::ChannelBuilder;
 use std::sync::LazyLock;
 
 // STRUCTS
@@ -168,6 +169,45 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 			}
 		}
 	}
+}
+
+/// Feed for post search results, built from the JSON API.
+/// Mirrors Reddit's feed URLs: `/search.rss?q=rust&sort=new`, `/r/rust/search.rss?q=async&restrict_sr=on`.
+pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
+	if !utils::enable_rss() {
+		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
+	}
+
+	let nsfw_results = if setting(&req, "show_nsfw") == "on" && !utils::sfw_only() {
+		"&include_over_18=on"
+	} else {
+		""
+	};
+	let page_path = utils::rss_page_path(&req).replace('+', "%2B");
+	let path = format!("{page_path}.json?{}{nsfw_results}&raw_json=1", req.uri().query().unwrap_or_default());
+
+	let query = param(&path, "q").unwrap_or_default();
+	if query.is_empty() {
+		return error(req, "Search feeds need a query, e.g. ?q=rust").await;
+	}
+	// Subreddit and user search results aren't posts
+	if param(&path, "type").is_some_and(|typed| typed != "link") {
+		return error(req, "Only post searches have feeds").await;
+	}
+
+	let (posts, _) = Post::fetch(&path, false).await?;
+
+	let title = match req.param("sub") {
+		Some(sub) if param(&path, "restrict_sr").is_some() => format!("Search results for \"{query}\" in r/{sub}"),
+		_ => format!("Search results for \"{query}\""),
+	};
+	let channel = ChannelBuilder::default()
+		.title(title)
+		.link(utils::rss_page_link(&req))
+		.items(utils::build_rss_items(&posts))
+		.build();
+
+	Ok(utils::rss_response(&channel))
 }
 
 async fn search_subreddits(q: &str, typed: &str) -> Vec<Subreddit> {

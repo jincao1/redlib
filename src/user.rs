@@ -1,6 +1,9 @@
 #![allow(clippy::cmp_owned)]
 use crate::body::Body;
-use crate::utils::{build_rss_item, error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, should_be_nsfw_gated, template, Post, Preferences, User};
+use crate::utils::{
+	build_rss_items, enable_rss, error, filter_posts, format_url, get_filters, nsfw_landing, param, rss_page_link, rss_response, setting, should_be_nsfw_gated, template, Post,
+	Preferences, User, RSS_USER_LISTINGS,
+};
 use crate::{client::json, server::RequestExt};
 use askama::Template;
 use hyper::{Request, Response};
@@ -130,41 +133,36 @@ async fn user(name: &str) -> Result<User, String> {
 	})
 }
 
+/// Feed for a user's posts and comments, built from the JSON API.
+/// Mirrors Reddit's feed URLs: `/user/spez.rss`, `/user/spez/submitted.rss?sort=top&t=year`, `/user/spez/comments.rss`.
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if !crate::utils::enable_rss() {
+	if !enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
-	use hyper::header::CONTENT_TYPE;
 
-	// Get user
 	let user_str = req.param("name").unwrap_or_default();
-
 	let listing = req.param("listing").unwrap_or_else(|| "overview".to_string());
+	if !RSS_USER_LISTINGS.contains(&listing.as_str()) {
+		return error(req, "Unknown feed listing").await;
+	}
 
-	// Get path
-	let path = format!("/user/{user_str}/{listing}.json?{}&raw_json=1", req.uri().query().unwrap_or_default(),);
-
-	// Get user
+	let path = format!("/user/{user_str}/{listing}.json?{}&raw_json=1", req.uri().query().unwrap_or_default());
 	let user_obj = user(&user_str).await.unwrap_or_default();
-
-	// Get posts
 	let (posts, _) = Post::fetch(&path, false).await?;
 
-	// Build the RSS feed
+	let title = match listing.as_str() {
+		"submitted" => format!("Posts by u/{user_str}"),
+		"comments" => format!("Comments by u/{user_str}"),
+		_ => format!("u/{user_str}"),
+	};
 	let channel = ChannelBuilder::default()
-		.title(user_str)
+		.title(title)
 		.description(user_obj.description)
-		.items(posts.into_iter().map(|post| build_rss_item(&post)).collect::<Vec<_>>())
+		.link(rss_page_link(&req))
+		.items(build_rss_items(&posts))
 		.build();
 
-	// Serialize the feed to RSS
-	let body = channel.to_string().into_bytes();
-
-	// Create the HTTP response
-	let mut res = Response::new(Body::from(body));
-	res.headers_mut().insert(CONTENT_TYPE, hyper::header::HeaderValue::from_static("application/rss+xml"));
-
-	Ok(res)
+	Ok(rss_response(&channel))
 }
 
 #[cfg(test)]
