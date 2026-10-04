@@ -1,6 +1,5 @@
 #![allow(clippy::cmp_owned)]
 use crate::body::Body;
-use crate::config;
 use crate::utils::{build_rss_item, error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, should_be_nsfw_gated, template, Post, Preferences, User};
 use crate::{client::json, server::RequestExt};
 use askama::Template;
@@ -132,7 +131,7 @@ async fn user(name: &str) -> Result<User, String> {
 }
 
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !crate::utils::enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 	use hyper::header::CONTENT_TYPE;
