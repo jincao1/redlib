@@ -40,6 +40,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Search box focus outline** covers the whole search form, not just the input ([redlib-org#524](https://github.com/redlib-org/redlib/pull/524)).
 - **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on`.
 - **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch.
+- **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid.
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
 
 ## Features

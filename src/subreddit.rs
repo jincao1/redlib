@@ -601,7 +601,7 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 	let sort = req.param("sort").unwrap_or_else(|| req.param("id").unwrap_or(post_sort));
 
 	// Get path
-	let path = format!("/r/{sub}/{sort}.json?{}", req.uri().query().unwrap_or_default());
+	let path = format!("/r/{sub}/{sort}.json?{}&raw_json=1", req.uri().query().unwrap_or_default());
 
 	// Get subreddit link
 	let subreddit_link: String = format!("{}/r/{sub}", config::get_setting("REDLIB_FULL_URL").unwrap_or_default());
