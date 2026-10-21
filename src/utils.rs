@@ -1674,10 +1674,11 @@ pub fn rss_feed_url(url: &str, prefs: &Preferences) -> Option<String> {
 	if !enable_rss() {
 		return None;
 	}
-	page_feed_url(url, &prefs.front_page, &prefs.subscriptions)
+	page_feed_url(url, &prefs.front_page, &prefs.subscriptions, &prefs.post_sort)
 }
 
-fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String]) -> Option<String> {
+/// `post_sort` is the sort a listing page shows when its URL has none; the feed URL names it explicitly.
+fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String], post_sort: &str) -> Option<String> {
 	let parsed = Url::parse(&format!("https://redlib.invalid{url}")).ok()?;
 	let segments: Vec<&str> = parsed.path().split('/').filter(|s| !s.is_empty()).collect();
 	let query: Vec<(String, String)> = parsed.query_pairs().into_owned().collect();
@@ -1696,6 +1697,7 @@ fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String]) -> Optio
 		}
 	};
 	let listing_query = || keep_query(&["sort", "t"]);
+	let default_sort = Some(post_sort).filter(|s| RSS_LISTING_SORTS.contains(s));
 	let sorted = |base: &str, sort: Option<&str>| match sort {
 		Some(sort) => format!("{base}/{sort}.rss"),
 		None => format!("{base}.rss"),
@@ -1709,7 +1711,7 @@ fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String]) -> Optio
 	let path = match segments.as_slice() {
 		// Front page. Feed readers don't send cookies, so point at the user's front page or subscriptions directly.
 		[] | [_] if segments.first().is_none_or(|s| RSS_LISTING_SORTS.contains(s)) => {
-			let sort = segments.first().copied();
+			let sort = segments.first().copied().or(default_sort);
 			let sub = if !front_page.is_empty() && front_page != "default" {
 				front_page.to_string()
 			} else {
@@ -1724,7 +1726,7 @@ fn page_feed_url(url: &str, front_page: &str, subscriptions: &[String]) -> Optio
 		}
 		["search"] => format!("/search.rss{}", keep_query(&["q", "sort", "t", "restrict_sr"])),
 		["r", sub, "search"] => format!("/r/{sub}/search.rss{}", keep_query(&["q", "sort", "t", "restrict_sr"])),
-		["r", sub] => sorted(&format!("/r/{sub}"), None) + &listing_query(),
+		["r", sub] => sorted(&format!("/r/{sub}"), default_sort) + &listing_query(),
 		["r", sub, sort] if RSS_LISTING_SORTS.contains(sort) => sorted(&format!("/r/{sub}"), Some(sort)) + &listing_query(),
 		["r", sub, "comments", id, ..] => format!("/r/{sub}/comments/{id}.rss{}", keep_query(&["sort"])),
 		["comments", id, ..] => format!("/comments/{id}.rss{}", keep_query(&["sort"])),
@@ -2195,7 +2197,7 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 
 	#[test]
 	fn page_feed_url_maps_pages_to_feeds() {
-		let feed = |url: &str| page_feed_url(url, "", &[]);
+		let feed = |url: &str| page_feed_url(url, "", &[], "");
 		assert_eq!(feed("/"), Some("/.rss".to_string()));
 		assert_eq!(feed("/top?t=week&after=t3_x"), Some("/top.rss?t=week".to_string()));
 		assert_eq!(feed("/r/rust"), Some("/r/rust.rss".to_string()));
@@ -2219,9 +2221,21 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 	#[test]
 	fn page_feed_url_front_page_uses_preferences() {
 		let subs = vec!["rust".to_string(), "linux".to_string()];
-		assert_eq!(page_feed_url("/", "", &subs), Some("/r/rust+linux.rss".to_string()));
-		assert_eq!(page_feed_url("/top?t=day", "default", &subs), Some("/r/rust+linux/top.rss?t=day".to_string()));
-		assert_eq!(page_feed_url("/new", "all", &subs), Some("/r/all/new.rss".to_string()));
+		assert_eq!(page_feed_url("/", "", &subs, ""), Some("/r/rust+linux.rss".to_string()));
+		assert_eq!(page_feed_url("/top?t=day", "default", &subs, ""), Some("/r/rust+linux/top.rss?t=day".to_string()));
+		assert_eq!(page_feed_url("/new", "all", &subs, ""), Some("/r/all/new.rss".to_string()));
+	}
+
+	#[test]
+	fn page_feed_url_names_the_default_sort() {
+		let subs = vec!["rust".to_string()];
+		assert_eq!(page_feed_url("/r/rust", "", &[], "new"), Some("/r/rust/new.rss".to_string()));
+		assert_eq!(page_feed_url("/r/rust/top?t=day", "", &[], "new"), Some("/r/rust/top.rss?t=day".to_string()));
+		assert_eq!(page_feed_url("/", "", &[], "rising"), Some("/rising.rss".to_string()));
+		assert_eq!(page_feed_url("/", "", &subs, "new"), Some("/r/rust/new.rss".to_string()));
+		assert_eq!(page_feed_url("/top", "", &subs, "new"), Some("/r/rust/top.rss".to_string()));
+		assert_eq!(page_feed_url("/r/rust", "", &[], "bogus"), Some("/r/rust.rss".to_string()));
+		assert_eq!(page_feed_url("/user/spez", "", &[], "new"), Some("/user/spez.rss".to_string()));
 	}
 
 	#[test]

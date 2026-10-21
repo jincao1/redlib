@@ -1,6 +1,6 @@
 # Changes compared to upstream Redlib
 
-This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) and tracks its `main` branch. It adds unmerged upstream pull requests, changes from [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib), and its own work.
+This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) and tracks its `main` branch. It adds unmerged upstream pull requests, changes from [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib), pull requests from contributors, and its own work.
 
 ## Container images
 
@@ -39,9 +39,9 @@ Bugs present in upstream Redlib that are fixed here:
 - **Large numbers** show as `10K` instead of `10.0K`.
 - **Comment collapse arrow** has a bigger touch area on mobile ([redlib-org#520](https://github.com/redlib-org/redlib/pull/520)).
 - **Search box focus outline** covers the whole search form, not just the input ([redlib-org#524](https://github.com/redlib-org/redlib/pull/524)).
-- **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on`.
-- **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch.
-- **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid.
+- **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on` ([#16](https://github.com/Nachtalb/redlib/pull/16)).
+- **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch ([#16](https://github.com/Nachtalb/redlib/pull/16)).
+- **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
 
 ## Features
@@ -64,11 +64,14 @@ From [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib):
 - **Maximum comment thread depth** setting.
 - **Return to the previous page** after saving settings.
 
+From [VictorVow1](https://github.com/VictorVow1) ([#16](https://github.com/Nachtalb/redlib/pull/16)):
+
+- **RSS feeds for every listing Reddit has feeds for**, using the same URLs as Reddit. See [RSS feeds](#rss-feeds).
+
 Own features:
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
-- **RSS feeds for every listing Reddit has feeds for**, using the same URLs as Reddit. See [RSS feeds](#rss-feeds).
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 
 ## Configuration
