@@ -56,6 +56,7 @@ From upstream pull requests that are not merged upstream:
 - **Geo filter** as a user setting instead of a URL parameter ([redlib-org#566](https://github.com/redlib-org/redlib/pull/566)), with country flags and names in the dropdown.
 - **Configurable source code link** in the footer ([redlib-org#568](https://github.com/redlib-org/redlib/pull/568)).
 - **Better RSS media**: images, galleries and videos render in RSS readers, and content is HTML-escaped ([redlib-org#572](https://github.com/redlib-org/redlib/pull/572)).
+- **Catppuccin themes**: Latte, Frappé, Macchiato and Mocha ([redlib-org#538](https://github.com/redlib-org/redlib/pull/538)).
 
 From [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib):
 
