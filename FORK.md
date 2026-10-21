@@ -39,6 +39,9 @@ Bugs present in upstream Redlib that are fixed here:
 - **Large numbers** show as `10K` instead of `10.0K`.
 - **Comment collapse arrow** has a bigger touch area on mobile ([redlib-org#520](https://github.com/redlib-org/redlib/pull/520)).
 - **Search box focus outline** covers the whole search form, not just the input ([redlib-org#524](https://github.com/redlib-org/redlib/pull/524)).
+- **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on`.
+- **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch.
+- **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid.
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
 
 ## Features
@@ -65,6 +68,7 @@ Own features:
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
+- **RSS feeds for every listing Reddit has feeds for**, using the same URLs as Reddit. See [RSS feeds](#rss-feeds).
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 
 ## Configuration
@@ -98,6 +102,26 @@ Settings codes (Settings → export / restore) now carry a format revision:
 - All settings added in this fork belong to revision 2.
 
 Codes exported from this fork can't be restored on upstream Redlib.
+
+### RSS feeds
+
+With `REDLIB_ENABLE_RSS=on`, append `.rss` to a page URL, as on Reddit. Both `/r/rust/top.rss` and `/r/rust/top/.rss` work. Query parameters are passed through, so `?t=year`, `?sort=top` and `?limit=100` work as on Reddit.
+
+| Feed | Example |
+|---|---|
+| Front page | `/.rss`, `/top.rss?t=day` |
+| Subreddit or multireddit | `/r/rust.rss`, `/r/SkincareAddiction/top.rss?t=year`, `/r/rust+linux/new.rss` |
+| Subreddit comments | `/r/rust/comments.rss` |
+| Post and its comments | `/r/rust/comments/abc123.rss`, `/comments/abc123/title/.rss?sort=top` |
+| User | `/user/spez.rss`, `/u/spez/submitted.rss?sort=top&t=all`, `/user/spez/comments.rss` |
+| Search | `/search.rss?q=rust&sort=new`, `/r/rust/search.rss?q=async&restrict_sr=on` |
+
+- Feeds are built from Reddit's JSON API, not proxied from Reddit's `.rss` feeds, so they keep working if Reddit drops those.
+- Post feeds list comments newest first by default.
+- The RSS button on subreddit and user pages links to the feed for the current sort, timeframe and listing. Every page with a feed advertises it with `<link rel="alternate">`, so feed readers find it from the page URL.
+- Feed readers don't send cookies, so feeds use the instance defaults. On the front page, the advertised feed points at the user's subscriptions or chosen front page directly.
+- With `REDLIB_FULL_URL` set, relative links and images in post and comment bodies are made absolute so they load in feed readers.
+- On SFW-only instances, NSFW posts and comments are left out of feeds.
 
 ## Dependencies and networking
 

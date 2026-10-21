@@ -299,7 +299,10 @@ async fn main() {
 	app.at("/u/:name/comments/:id/:title/:comment_id").get(|r| post::item(r).boxed());
 
 	app.at("/user/[deleted]").get(|req| error(req, "User has deleted their account").boxed());
+	app.at("/u/:name.rss").get(|r| user::rss(r).boxed());
+	app.at("/u/:name/:listing.rss").get(|r| user::rss(r).boxed());
 	app.at("/user/:name.rss").get(|r| user::rss(r).boxed());
+	app.at("/user/:name/:listing.rss").get(|r| user::rss(r).boxed());
 	app.at("/user/:name").get(|r| user::profile(r).boxed());
 	app.at("/user/:name/:listing").get(|r| user::profile(r).boxed());
 	app.at("/user/:name/comments/:id").get(|r| post::item(r).boxed());
@@ -312,8 +315,20 @@ async fn main() {
 	app.at("/settings/encoded-restore").post(|r| settings::encoded_restore(r).boxed());
 	app.at("/settings/update").get(|r| settings::update(r).boxed());
 
-	// RSS Subscriptions
+	// RSS Subscriptions. Feeds are built from the JSON API, not Reddit's own feeds.
+	// A trailing slash before the extension (`/r/rust/top/.rss`) is normalized away by the server.
+	app.at("/.rss").get(|r| subreddit::rss(r).boxed());
+	for sort in ["/hot.rss", "/new.rss", "/top.rss", "/rising.rss", "/controversial.rss", "/best.rss"] {
+		app.at(sort).get(|r| subreddit::rss(r).boxed());
+	}
 	app.at("/r/:sub.rss").get(|r| subreddit::rss(r).boxed());
+	app.at("/r/:sub/:sort.rss").get(|r| subreddit::rss(r).boxed());
+	app.at("/r/:sub/search.rss").get(|r| search::rss(r).boxed());
+	app.at("/r/:sub/comments/:id.rss").get(|r| post::rss(r).boxed());
+	app.at("/r/:sub/comments/:id/:title.rss").get(|r| post::rss(r).boxed());
+	app.at("/comments/:id.rss").get(|r| post::rss(r).boxed());
+	app.at("/comments/:id/:title.rss").get(|r| post::rss(r).boxed());
+	app.at("/search.rss").get(|r| search::rss(r).boxed());
 
 	// Subreddit services
 	app

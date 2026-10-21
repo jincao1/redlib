@@ -1,10 +1,9 @@
 #![allow(clippy::cmp_owned)]
 
 use crate::body::Body;
-use crate::config;
 use crate::utils::{
-	build_rss_item, catch_random, clean_url, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls, setting,
-	should_be_nsfw_gated, template, val, Post, Preferences, Subreddit,
+	build_rss_items, catch_random, clean_url, enable_rss, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls,
+	rss_page_link, rss_page_path, rss_response, setting, should_be_nsfw_gated, template, val, Post, Preferences, Subreddit, RSS_LISTING_SORTS,
 };
 use crate::{client::json, server::RequestExt, server::ResponseExt};
 use askama::Template;
@@ -588,46 +587,68 @@ async fn subreddit(sub: &str, quarantined: bool) -> Result<Subreddit, String> {
 	})
 }
 
+/// Feed for a subreddit, multireddit or the front page, built from the JSON API.
+/// Mirrors Reddit's feed URLs: `/r/rust.rss`, `/r/rust/top.rss?t=year`, `/r/rust/comments.rss`, `/top.rss`.
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 
-	use hyper::header::CONTENT_TYPE;
+	// Front page feeds have no subreddit: the sort is the whole path (`/top.rss`)
+	let (sub, sort) = match req.param("sub") {
+		Some(sub) => (sub, req.param("sort")),
+		None => {
+			let front_page = setting(&req, "front_page");
+			let subscribed = setting(&req, "subscriptions");
+			let sub = if !front_page.is_empty() && front_page != "default" {
+				front_page
+			} else if !subscribed.is_empty() {
+				subscribed
+			} else {
+				"popular".to_string()
+			};
+			let sort = rss_page_path(&req).trim_start_matches('/').to_string();
+			(sub, Some(sort).filter(|s| !s.is_empty()))
+		}
+	};
+	let sort = sort.unwrap_or_else(|| Some(setting(&req, "post_sort")).filter(|s| !s.is_empty()).unwrap_or_else(|| "hot".to_string()));
+	if sort != "comments" && !RSS_LISTING_SORTS.contains(&sort.as_str()) {
+		return error(req, "Unknown feed sort").await;
+	}
 
-	// Get subreddit
-	let sub = req.param("sub").unwrap_or_default();
-	let post_sort = req.cookie("post_sort").map_or_else(|| "hot".to_string(), |c| c.value().to_string());
-	let sort = req.param("sort").unwrap_or_else(|| req.param("id").unwrap_or(post_sort));
+	// Only real subreddits have metadata; multireddits, r/all and r/popular don't
+	let subreddit = if sub.contains('+') || sub == "all" || sub == "popular" {
+		Subreddit {
+			name: sub.clone(),
+			title: format!("r/{sub}"),
+			..Subreddit::default()
+		}
+	} else {
+		subreddit(&sub, false).await?
+	};
+	if subreddit.nsfw && crate::utils::sfw_only() {
+		return error(req, "NSFW content is disabled on this instance.").await;
+	}
 
-	// Get path
-	let path = format!("/r/{sub}/{sort}.json?{}", req.uri().query().unwrap_or_default());
-
-	// Get subreddit link
-	let subreddit_link: String = format!("{}/r/{sub}", config::get_setting("REDLIB_FULL_URL").unwrap_or_default());
-
-	// Get subreddit data
-	let subreddit = subreddit(&sub, false).await?;
-
-	// Get posts
+	let mut params = String::from("&raw_json=1");
+	if sub == "popular" {
+		params.push_str(&format!("&geo_filter={}", Preferences::new(&req).geo_filter));
+	}
+	let path = format!("/r/{}/{sort}.json?{}{params}", sub.replace('+', "%2B"), req.uri().query().unwrap_or_default());
 	let (posts, _) = Post::fetch(&path, false).await?;
 
-	// Build the RSS feed
+	let title = match sort.as_str() {
+		"comments" => format!("Comments in {}", subreddit.title),
+		_ => subreddit.title.clone(),
+	};
 	let channel = ChannelBuilder::default()
-		.title(&subreddit.title)
+		.title(title)
 		.description(&subreddit.description)
-		.link(&subreddit_link)
-		.items(posts.into_iter().map(|post| build_rss_item(&post)).collect::<Vec<_>>())
+		.link(rss_page_link(&req))
+		.items(build_rss_items(&posts))
 		.build();
 
-	// Serialize the feed to RSS
-	let body = channel.to_string().into_bytes();
-
-	// Create the HTTP response
-	let mut res = Response::new(Body::from(body));
-	res.headers_mut().insert(CONTENT_TYPE, hyper::header::HeaderValue::from_static("application/rss+xml"));
-
-	Ok(res)
+	Ok(rss_response(&channel))
 }
 
 #[cfg(test)]
