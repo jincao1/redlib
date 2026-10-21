@@ -24,6 +24,7 @@ No release binaries are published. Build from source with `cargo build --release
 
 Bugs present in upstream Redlib that are fixed here:
 
+- **Post pages failed** with `Failed to parse page JSON data`: Reddit blocks `/r/<sub>/comments/...` for anonymous clients, so the slash before `comments` is encoded. A block is now reported as a block instead of a JSON error. Short `/comments/<id>` links stay blocked ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592)).
 - **Subscriptions and filters were wiped** when saving a single setting ([redlib-org#562](https://github.com/redlib-org/redlib/issues/562)).
 - **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)).
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
