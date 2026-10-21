@@ -12,7 +12,7 @@ use log::{info, warn};
 use redlib::body::Body;
 use redlib::client::{canonical_path, proxy, rate_limit_check, CLIENT};
 use redlib::server::{self, RequestExt};
-use redlib::utils::{error, redirect, ThemeAssets};
+use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, headers, instance_info, post, search, settings, subreddit, user};
 
 use redlib::client::OAUTH_CLIENT;
@@ -470,7 +470,7 @@ pub async fn proxy_commit_info() -> Result<Response<Body>, String> {
 
 #[cached(ttl_secs = 600, result_fallback = true)]
 async fn fetch_commit_info() -> Result<String, String> {
-	fetch_text("https://github.com/redlib-org/redlib/commits/main.atom").await
+	fetch_text(&format!("{}/commits/main.atom", get_source_url().trim_end_matches('/'))).await
 }
 
 pub async fn proxy_instances() -> Result<Response<Body>, String> {
