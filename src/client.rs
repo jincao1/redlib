@@ -335,8 +335,9 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	}
 	OAUTH_RATELIMIT_REMAINING.fetch_sub(1, Ordering::SeqCst);
 
-	// Fetch the url...
-	match reddit_get(path.clone(), quarantine).await {
+	// Fetch the url. Thread routes need the slash between the subreddit and
+	// `comments` encoded; see encode_thread_route().
+	match reddit_get(encode_thread_route(&path), quarantine).await {
 		Ok(response) => {
 			let status = response.status();
 
@@ -424,11 +425,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
-							if status.is_server_error() {
-								Err("Reddit is having issues, check if there's an outage".to_string())
-							} else {
-								err("Failed to parse page JSON data", e.to_string(), path)
-							}
+							Err(non_json_response_error(status.as_u16(), &e.to_string(), &path))
 						}
 					}
 				}
@@ -436,6 +433,67 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// Percent-encodes the slash that joins the subreddit to `comments` in a
+/// thread route.
+///
+/// Reddit's edge matches the literal path `/r/<subreddit>/comments/...` and
+/// answers it with an HTML "You've been blocked by network security" page when
+/// the request carries an anonymous or app-only OAuth token - which is every
+/// token Redlib can mint. The same request with just that one slash encoded
+/// (`/r/<subreddit>%2fcomments/...`) is not matched and returns the usual JSON.
+///
+/// `/r/rust/comments/18t5968/foo/.json?raw_json=1`
+///   -> `/r/rust%2fcomments/18t5968/foo/.json?raw_json=1`
+///
+/// Anything that is not a thread route is returned unchanged. This works around
+/// a Reddit-side block and should be removed if Reddit starts normalising the
+/// path. See <https://github.com/redlib-org/redlib/issues/591>.
+fn encode_thread_route(path: &str) -> String {
+	// Split the query string off so that only the path itself is rewritten.
+	let (path_part, query_part) = match path.split_once('?') {
+		Some((path_part, query_part)) => (path_part, Some(query_part)),
+		None => (path, None),
+	};
+
+	let mut encoded_path = path_part.to_string();
+
+	if let Some(rest) = path_part.strip_prefix("/r/") {
+		if let Some(index) = rest.find("/comments") {
+			let tail = &rest[index + "/comments".len()..];
+
+			// `/comments/`, `/comments.json` or a path ending in `/comments` is
+			// the route; `/commentsXYZ` is not.
+			if tail.is_empty() || tail.starts_with('/') || tail.starts_with('.') {
+				encoded_path = format!("/r/{}%2fcomments{tail}", &rest[..index]);
+			}
+		}
+	}
+
+	match query_part {
+		Some(query_part) => format!("{encoded_path}?{query_part}"),
+		None => encoded_path,
+	}
+}
+
+/// Builds the user-facing error for a response that Reddit did not send as JSON.
+///
+/// Reddit answers requests it refuses to serve - most notably the
+/// thread/comment endpoints for anonymous and app-only OAuth clients - with an
+/// HTML "You've been blocked by network security" page rather than JSON.
+/// Reporting that as a JSON parse error sends users looking for a bug in
+/// Redlib, so name the real cause instead.
+///
+/// See <https://github.com/redlib-org/redlib/issues/591>.
+fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String {
+	if status == 403 {
+		format!("Reddit blocked this request (403 Forbidden): Reddit now requires a logged-in session for this endpoint | {path}")
+	} else if (500..=599).contains(&status) {
+		"Reddit is having issues, check if there's an outage".to_string()
+	} else {
+		format!("Failed to parse page JSON data: {parse_error} | {path}")
 	}
 }
 
@@ -509,6 +567,67 @@ mod tests {
 	use {crate::config::get_setting, sealed_test::prelude::*};
 
 	const POPULAR_URL: &str = "/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL";
+
+	#[test]
+	fn test_thread_route_gets_its_slash_encoded() {
+		// Reddit blocks the literal `/r/<sub>/comments/...` path for app-only
+		// OAuth tokens, and serves the same JSON when that one slash is encoded.
+		assert_eq!(
+			encode_thread_route("/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1"),
+			"/r/politics%2fcomments/1x9xx9e/.json?&sort=confidence&raw_json=1"
+		);
+		assert_eq!(
+			encode_thread_route("/r/rust/comments/18t5968/why_use_tuple_struct_over_standard_struct/"),
+			"/r/rust%2fcomments/18t5968/why_use_tuple_struct_over_standard_struct/"
+		);
+		assert_eq!(
+			encode_thread_route("/r/rust/comments/18t5968/kfbqlbc/.json?raw_json=1"),
+			"/r/rust%2fcomments/18t5968/kfbqlbc/.json?raw_json=1"
+		);
+		// A subreddit that happens to be called `comments` still resolves.
+		assert_eq!(encode_thread_route("/r/comments/comments/1x9xx9e/.json"), "/r/comments%2fcomments/1x9xx9e/.json");
+	}
+
+	#[test]
+	fn test_non_thread_paths_are_left_alone() {
+		for path in [
+			"/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL",
+			"/r/rust/about.json?raw_json=1",
+			"/r/rust/hot.json?raw_json=1",
+			"/r/rust/commentsXYZ.json",
+			"/r/rust/s/kPgq8WNHRK",
+			"/user/spez/comments.json?limit=1",
+			"/comments/1x9xx9e",
+		] {
+			assert_eq!(encode_thread_route(path), path, "{path}");
+		}
+	}
+
+	#[test]
+	fn test_blocked_response_reports_the_block_not_a_json_error() {
+		// Reddit's block page is HTML, so serde fails on it. The message the
+		// user sees must not blame JSON parsing.
+		let msg = non_json_response_error(403, "expected value at line 1 column 1", "/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1");
+		assert!(msg.contains("403"), "{msg}");
+		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
+		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
+	}
+
+	#[test]
+	fn test_non_json_server_error_keeps_the_outage_message() {
+		assert_eq!(
+			non_json_response_error(502, "expected value at line 1 column 1", "/r/x/hot.json"),
+			"Reddit is having issues, check if there's an outage"
+		);
+	}
+
+	#[test]
+	fn test_other_non_json_responses_still_report_a_parse_error() {
+		assert_eq!(
+			non_json_response_error(200, "expected value at line 1 column 1", "/r/x/hot.json"),
+			"Failed to parse page JSON data: expected value at line 1 column 1 | /r/x/hot.json"
+		);
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_rate_limit_check() {
