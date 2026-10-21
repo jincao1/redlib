@@ -110,7 +110,6 @@ impl InstanceInfo {
 	}
 	fn to_table(&self) -> String {
 		let mut container = Container::default();
-		let convert = |o: &Option<String>| -> String { o.clone().unwrap_or_else(|| "<span class=\"unset\"><i>Unset</i></span>".to_owned()) };
 		if let Some(banner) = &self.config.banner {
 			container.add_header(3, "Instance banner");
 			container.add_raw("<br />");
@@ -125,38 +124,37 @@ impl InstanceInfo {
 				["Deploy date", &self.deploy_date],
 				["Deploy timestamp", &self.deploy_unix_ts.to_string()],
 				["Compile mode", &self.compile_mode],
-				["SFW only", &convert(&self.config.sfw_only)],
-				["Pushshift frontend", &convert(&self.config.pushshift)],
-				["RSS enabled", &convert(&self.config.enable_rss)],
-				["RedGifs enabled", &convert(&self.config.enable_redgifs)],
-				["Full URL", &convert(&self.config.full_url)],
-				["Remove default feeds", &convert(&self.config.default_remove_default_feeds)],
-				//TODO: fallback to crate::config::DEFAULT_PUSHSHIFT_FRONTEND
+				["SFW only", &effective(&self.config.sfw_only, "off")],
+				["Pushshift frontend", &effective(&self.config.pushshift, crate::config::DEFAULT_PUSHSHIFT_FRONTEND)],
+				["RSS enabled", &effective(&self.config.enable_rss, "off")],
+				["RedGifs enabled", &effective(&self.config.enable_redgifs, "on")],
+				["Full URL", &effective(&self.config.full_url, "none")],
+				["Remove default feeds", &effective(&self.config.default_remove_default_feeds, "off")],
 			])
 			.with_header_row(["Settings"]),
 		);
 		container.add_raw("<br />");
 		container.add_table(
 			Table::from([
-				["Hide awards", &convert(&self.config.default_hide_awards)],
-				["Hide score", &convert(&self.config.default_hide_score)],
-				["Theme", &convert(&self.config.default_theme)],
-				["Front page", &convert(&self.config.default_front_page)],
-				["Layout", &convert(&self.config.default_layout)],
-				["Wide", &convert(&self.config.default_wide)],
-				["Comment sort", &convert(&self.config.default_comment_sort)],
-				["Post sort", &convert(&self.config.default_post_sort)],
-				["Blur Spoiler", &convert(&self.config.default_blur_spoiler)],
-				["Show NSFW", &convert(&self.config.default_show_nsfw)],
-				["Blur NSFW", &convert(&self.config.default_blur_nsfw)],
-				["Use HLS", &convert(&self.config.default_use_hls)],
-				["Hide HLS notification", &convert(&self.config.default_hide_hls_notification)],
-				["Subscriptions", &convert(&self.config.default_subscriptions)],
-				["Filters", &convert(&self.config.default_filters)],
-				["Geo filter", &convert(&self.config.default_geo_filter)],
-				["Clean URLs", &convert(&self.config.default_clean_urls)],
-				["Posts per page", &convert(&self.config.default_posts_per_page)],
-				["Max comment thread depth", &convert(&self.config.default_max_comment_thread_depth)],
+				["Hide awards", &effective(&self.config.default_hide_awards, "off")],
+				["Hide score", &effective(&self.config.default_hide_score, "off")],
+				["Theme", &effective(&self.config.default_theme, "system")],
+				["Front page", &effective(&self.config.default_front_page, "default")],
+				["Layout", &effective(&self.config.default_layout, "card")],
+				["Wide", &effective(&self.config.default_wide, "off")],
+				["Comment sort", &effective(&self.config.default_comment_sort, "confidence")],
+				["Post sort", &effective(&self.config.default_post_sort, "hot")],
+				["Blur Spoiler", &effective(&self.config.default_blur_spoiler, "off")],
+				["Show NSFW", &effective(&self.config.default_show_nsfw, "off")],
+				["Blur NSFW", &effective(&self.config.default_blur_nsfw, "off")],
+				["Use HLS", &effective(&self.config.default_use_hls, "off")],
+				["Hide HLS notification", &effective(&self.config.default_hide_hls_notification, "off")],
+				["Subscriptions", &effective(&self.config.default_subscriptions, "none")],
+				["Filters", &effective(&self.config.default_filters, "none")],
+				["Geo filter", &effective(&self.config.default_geo_filter, "GLOBAL")],
+				["Clean URLs", &effective(&self.config.default_clean_urls, "off")],
+				["Posts per page", &effective(&self.config.default_posts_per_page, "25")],
+				["Max comment thread depth", &effective(&self.config.default_max_comment_thread_depth, "0")],
 			])
 			.with_header_row(["Default preferences"]),
 		);
@@ -172,33 +170,33 @@ impl InstanceInfo {
 					"Deploy date: {}\n",
 					"Deploy timestamp: {}\n",
 					"Compile mode: {}\n",
-					"SFW only: {:?}\n",
-					"RSS enabled: {:?}\n",
-					"RedGifs enabled: {:?}\n",
-					"Full URL: {:?}\n",
-					"Remove default feeds: {:?}\n",
-					"Pushshift frontend: {:?}\n",
+					"SFW only: {}\n",
+					"RSS enabled: {}\n",
+					"RedGifs enabled: {}\n",
+					"Full URL: {}\n",
+					"Remove default feeds: {}\n",
+					"Pushshift frontend: {}\n",
 					"Config:\n",
 					"    Banner: {:?}\n",
-					"    Hide awards: {:?}\n",
-					"    Hide score: {:?}\n",
-					"    Default theme: {:?}\n",
-					"    Default front page: {:?}\n",
-					"    Default layout: {:?}\n",
-					"    Default wide: {:?}\n",
-					"    Default comment sort: {:?}\n",
-					"    Default post sort: {:?}\n",
-					"    Default blur Spoiler: {:?}\n",
-					"    Default show NSFW: {:?}\n",
-					"    Default blur NSFW: {:?}\n",
-					"    Default use HLS: {:?}\n",
-					"    Default hide HLS notification: {:?}\n",
-					"    Default clean urls: {:?}\n",
-					"    Default subscriptions: {:?}\n",
-					"    Default filters: {:?}\n",
-					"    Default geo filter: {:?}\n",
-					"    Default posts per page: {:?}\n",
-					"    Default max comment thread depth: {:?}\n",
+					"    Hide awards: {}\n",
+					"    Hide score: {}\n",
+					"    Default theme: {}\n",
+					"    Default front page: {}\n",
+					"    Default layout: {}\n",
+					"    Default wide: {}\n",
+					"    Default comment sort: {}\n",
+					"    Default post sort: {}\n",
+					"    Default blur Spoiler: {}\n",
+					"    Default show NSFW: {}\n",
+					"    Default blur NSFW: {}\n",
+					"    Default use HLS: {}\n",
+					"    Default hide HLS notification: {}\n",
+					"    Default clean urls: {}\n",
+					"    Default subscriptions: {}\n",
+					"    Default filters: {}\n",
+					"    Default geo filter: {}\n",
+					"    Default posts per page: {}\n",
+					"    Default max comment thread depth: {}\n",
 				),
 				self.package_name,
 				self.crate_version,
@@ -206,37 +204,45 @@ impl InstanceInfo {
 				self.deploy_date,
 				self.deploy_unix_ts,
 				self.compile_mode,
-				self.config.sfw_only,
-				self.config.enable_rss,
-				self.config.enable_redgifs,
-				self.config.full_url,
-				self.config.default_remove_default_feeds,
-				self.config.pushshift,
+				effective(&self.config.sfw_only, "off"),
+				effective(&self.config.enable_rss, "off"),
+				effective(&self.config.enable_redgifs, "on"),
+				effective(&self.config.full_url, "none"),
+				effective(&self.config.default_remove_default_feeds, "off"),
+				effective(&self.config.pushshift, crate::config::DEFAULT_PUSHSHIFT_FRONTEND),
 				self.config.banner,
-				self.config.default_hide_awards,
-				self.config.default_hide_score,
-				self.config.default_theme,
-				self.config.default_front_page,
-				self.config.default_layout,
-				self.config.default_wide,
-				self.config.default_comment_sort,
-				self.config.default_post_sort,
-				self.config.default_blur_spoiler,
-				self.config.default_show_nsfw,
-				self.config.default_blur_nsfw,
-				self.config.default_use_hls,
-				self.config.default_hide_hls_notification,
-				self.config.default_clean_urls,
-				self.config.default_subscriptions,
-				self.config.default_filters,
-				self.config.default_geo_filter,
-				self.config.default_posts_per_page,
-				self.config.default_max_comment_thread_depth,
+				effective(&self.config.default_hide_awards, "off"),
+				effective(&self.config.default_hide_score, "off"),
+				effective(&self.config.default_theme, "system"),
+				effective(&self.config.default_front_page, "default"),
+				effective(&self.config.default_layout, "card"),
+				effective(&self.config.default_wide, "off"),
+				effective(&self.config.default_comment_sort, "confidence"),
+				effective(&self.config.default_post_sort, "hot"),
+				effective(&self.config.default_blur_spoiler, "off"),
+				effective(&self.config.default_show_nsfw, "off"),
+				effective(&self.config.default_blur_nsfw, "off"),
+				effective(&self.config.default_use_hls, "off"),
+				effective(&self.config.default_hide_hls_notification, "off"),
+				effective(&self.config.default_clean_urls, "off"),
+				effective(&self.config.default_subscriptions, "none"),
+				effective(&self.config.default_filters, "none"),
+				effective(&self.config.default_geo_filter, "GLOBAL"),
+				effective(&self.config.default_posts_per_page, "25"),
+				effective(&self.config.default_max_comment_thread_depth, "0"),
 			),
 			StringType::Html => self.to_table(),
 		}
 	}
 }
+/// The configured value, or the value Redlib uses when it is unset or empty.
+fn effective(value: &Option<String>, default: &str) -> String {
+	match value.as_deref() {
+		Some(value) if !value.is_empty() => value.to_string(),
+		_ => format!("{default} (default)"),
+	}
+}
+
 enum StringType {
 	Raw,
 	Html,
@@ -248,4 +254,16 @@ struct MessageTemplate {
 	body: String,
 	prefs: Preferences,
 	url: String,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::effective;
+
+	#[test]
+	fn effective_shows_the_default_when_unset() {
+		assert_eq!(effective(&Some("on".into()), "off"), "on");
+		assert_eq!(effective(&None, "on"), "on (default)");
+		assert_eq!(effective(&Some(String::new()), "none"), "none (default)");
+	}
 }

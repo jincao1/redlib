@@ -72,6 +72,7 @@ Own features:
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
+- **Instance info shows the values in use**: `/info` and `/info.txt` show the default for settings that aren't configured, marked `(default)`, instead of `Unset` or `None`.
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 
 ## Configuration
