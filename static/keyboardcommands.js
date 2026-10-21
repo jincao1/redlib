@@ -1,3 +1,4 @@
+// @license http://www.gnu.org/licenses/agpl-3.0.html AGPL-3.0
 document.addEventListener("DOMContentLoaded", function () {
     allComments = [];
     topmostCommentsInThreads = [];
@@ -54,3 +55,4 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 });
+// @license-end
