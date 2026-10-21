@@ -1784,11 +1784,6 @@ input[type="submit"] {
     width: 250px;
     background: var(--highlighted) !important;
 }
-/* Info page */
-.unset {
-    color: lightslategrey;
-}
-
 /* Markdown */
 
 .md {
