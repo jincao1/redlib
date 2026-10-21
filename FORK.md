@@ -24,6 +24,9 @@ No release binaries are published. Build from source with `cargo build --release
 
 Bugs present in upstream Redlib that are fixed here:
 
+- **Rate-limit counter wrapped around**: requests near the end of the quota could push it below zero to 65535, which skipped the token refresh ([redlib-org#586](https://github.com/redlib-org/redlib/pull/586)).
+- **`/commits.atom` and `/instances.json` crashed the request** when GitHub was unreachable. They now serve the last good copy, or a 502 ([redlib-org#396](https://github.com/redlib-org/redlib/pull/396), ported).
+- **Error pages called fork builds outdated**: the update check compared the instance's commit with upstream's commit list, so every fork build was "at least 20 commits old". It now checks the repository in `REDLIB_SOURCE_URL`.
 - **Post pages failed** with `Failed to parse page JSON data`: Reddit blocks `/r/<sub>/comments/...` for anonymous clients, so the slash before `comments` is encoded. A block is now reported as a block instead of a JSON error. Short `/comments/<id>` links stay blocked ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592)).
 - **Subscriptions and filters were wiped** when saving a single setting ([redlib-org#562](https://github.com/redlib-org/redlib/issues/562)).
 - **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)).
@@ -82,7 +85,7 @@ Own features:
 | Variable | Default | Description |
 |---|---|---|
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
-| `REDLIB_SOURCE_URL` | `https://github.com/redlib-org/redlib` | Source code link in the footer. |
+| `REDLIB_SOURCE_URL` | `https://github.com/redlib-org/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
 
 ### New user settings
 

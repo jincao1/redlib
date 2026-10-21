@@ -12,7 +12,7 @@ use log::{info, warn};
 use redlib::body::Body;
 use redlib::client::{canonical_path, proxy, rate_limit_check, CLIENT};
 use redlib::server::{self, RequestExt};
-use redlib::utils::{error, redirect, ThemeAssets};
+use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, headers, instance_info, post, search, settings, subreddit, user};
 
 use redlib::client::OAUTH_CLIENT;
@@ -465,35 +465,38 @@ async fn main() {
 }
 
 pub async fn proxy_commit_info() -> Result<Response<Body>, String> {
-	Ok(
-		Response::builder()
-			.status(200)
-			.header("content-type", "application/atom+xml")
-			.body(Body::from(fetch_commit_info().await))
-			.unwrap_or_default(),
-	)
+	Ok(proxied_text(fetch_commit_info().await, "application/atom+xml"))
 }
 
-#[cached(ttl_secs = 600)]
-async fn fetch_commit_info() -> String {
-	let url = "https://github.com/redlib-org/redlib/commits/main.atom";
-
-	CLIENT.get(url).send().await.expect("Failed to request GitHub").text().await.expect("Failed to read body")
+#[cached(ttl_secs = 600, result_fallback = true)]
+async fn fetch_commit_info() -> Result<String, String> {
+	fetch_text(&format!("{}/commits/main.atom", get_source_url().trim_end_matches('/'))).await
 }
 
 pub async fn proxy_instances() -> Result<Response<Body>, String> {
-	Ok(
-		Response::builder()
-			.status(200)
-			.header("content-type", "application/json")
-			.body(Body::from(fetch_instances().await))
-			.unwrap_or_default(),
-	)
+	Ok(proxied_text(fetch_instances().await, "application/json"))
 }
 
-#[cached(ttl_secs = 600)]
-async fn fetch_instances() -> String {
-	let url = "https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json";
+#[cached(ttl_secs = 600, result_fallback = true)]
+async fn fetch_instances() -> Result<String, String> {
+	fetch_text("https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json").await
+}
 
-	CLIENT.get(url).send().await.expect("Failed to request GitHub").text().await.expect("Failed to read body")
+async fn fetch_text(url: &str) -> Result<String, String> {
+	let response = CLIENT.get(url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
+	response.text().await.map_err(|e| e.to_string())
+}
+
+fn proxied_text(body: Result<String, String>, content_type: &str) -> Response<Body> {
+	match body {
+		Ok(body) => Response::builder().status(200).header("content-type", content_type).body(Body::from(body)),
+		Err(e) => {
+			warn!("Failed to fetch from GitHub: {e}");
+			Response::builder()
+				.status(502)
+				.header("content-type", "text/plain")
+				.body(Body::from("Failed to fetch from GitHub"))
+		}
+	}
+	.unwrap_or_default()
 }

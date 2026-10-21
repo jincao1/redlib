@@ -422,7 +422,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_RSS`              | `["on", "off"]` | `off`                                  | Enables RSS feed generation.                                                                              |
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
-| `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance.
+| `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch.
 
 ## Default user settings
 
