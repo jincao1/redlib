@@ -141,7 +141,15 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 	if param(&format!("?{query}"), "sort").is_none() {
 		query.push_str("&sort=new");
 	}
-	let response = json(format!("/comments/{id}.json?{query}&raw_json=1"), false).await?;
+	// Reddit blocks `/comments/<id>.json`, so threads are fetched through their subreddit
+	let sub = match req.param("sub") {
+		Some(sub) => sub,
+		None => {
+			let info = json(format!("/by_id/t3_{id}.json?raw_json=1"), false).await?;
+			info["data"]["children"][0]["data"]["subreddit"].as_str().unwrap_or_default().to_string()
+		}
+	};
+	let response = json(format!("/r/{sub}/comments/{id}.json?{query}&raw_json=1"), false).await?;
 
 	let post = parse_post(&response[0]["data"]["children"][0]).await;
 	if post.nsfw && sfw_only() {
