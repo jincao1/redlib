@@ -423,14 +423,14 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
-| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...; token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
 
 ### Reddit session
 
 Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` and `token_v2` cookies of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookies are needed. Separate several sessions with `|` to rotate between them:
 
 ```bash
-REDLIB_REDDIT_COOKIE="reddit_session=...; token_v2=... | reddit_session=...; token_v2=..."
+REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=... | reddit_session=...;token_v2=..."
 ```
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
