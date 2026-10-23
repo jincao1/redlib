@@ -41,7 +41,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	let url = req.uri().to_string();
 
 	// Set sort to sort query parameter
-	let sort = param(&params, "sort").unwrap_or_else(|| {
+	let sort = param(&format!("?{params}"), "sort").unwrap_or_else(|| {
 		// Grab default comment sort method from Cookies
 		let default_sort = setting(&req, "comment_sort");
 
@@ -54,7 +54,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 		}
 	});
 
-	let _depth = param(&params, "depth").unwrap_or_else(|| {
+	let _depth = param(&format!("?{params}"), "depth").unwrap_or_else(|| {
 		let default_depth: u32 = setting(&req, "max_comment_thread_depth").parse().unwrap_or(0);
 		if default_depth < 1 {
 			String::new()
@@ -78,7 +78,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => match scraped_thread(
 			req.param("id").unwrap_or_default(),
 			req.param("comment_id"),
-			param(&params, "context"),
+			param(&format!("?{params}"), "context"),
 			sort.clone(),
 			quarantined,
 		)
