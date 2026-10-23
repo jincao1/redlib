@@ -423,7 +423,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
-| `REDDIT_COOKIE`           | String          | (empty)                                | `Cookie` request header of a logged-in reddit.com session. Without it, Reddit blocks post and comment pages. **Secret.** See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | `Cookie` request header of a logged-in reddit.com session; separate several sessions with `|`. Without it, Reddit blocks post and comment pages. **Secret.** See [Reddit session](#reddit-session). |
 
 ### Reddit session
 
@@ -440,6 +440,14 @@ Reddit no longer serves its `.json` endpoints to logged-out clients: it answers 
    ```toml
    REDLIB_REDDIT_COOKIE = "reddit_session=...; token_v2=...; ..."
    ```
+
+Several sessions, ideally from different accounts, can be given at once, separated by `|`:
+
+```bash
+REDLIB_REDDIT_COOKIE="reddit_session=...; token_v2=... | reddit_session=...; token_v2=..." redlib
+```
+
+Blocked requests use them in turn. If Reddit refuses one, the same request moves on to the next, so a single expired session doesn't break any pages. The log names a refused session only by its position (`Session #2 was refused`).
 
 Copy the cookie from Chrome or Firefox: the instance presents itself as one of those browsers, and Reddit is more likely to refuse a session that comes with a different browser fingerprint. Only requests Reddit blocks are retried with the session, so the account is not used for the instance's regular listing traffic.
 

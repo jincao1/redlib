@@ -15,7 +15,7 @@ use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicBool, AtomicU16};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize};
 use std::sync::LazyLock;
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -81,22 +81,34 @@ pub fn build_client() -> WreqClient {
 		.expect("Should always be able to build a client")
 }
 
-/// The `Cookie` header of a logged-in reddit.com session, from configuration.
+/// The `Cookie` headers of logged-in reddit.com sessions, from configuration.
 ///
 /// Reddit stopped serving `.json` to logged-out clients: it answers with an
 /// HTML block page and HTTP 403. A real session cookie makes the same request
 /// return JSON, which is the only way to keep post and comment pages working.
-fn session_cookie() -> Option<String> {
-	let raw = get_setting(REDDIT_COOKIE_SETTING)?;
-	let cookie = sanitize_cookie(&raw);
+/// Several sessions are separated by `|` and used in turn.
+fn session_cookies() -> Vec<(usize, String)> {
+	let Some(raw) = get_setting(REDDIT_COOKIE_SETTING) else {
+		return Vec::new();
+	};
 
-	if cookie.is_none() && !raw.trim().is_empty() {
-		// The value is a credential, so it must not be logged.
-		warn!("Ignoring {REDDIT_COOKIE_SETTING}: the value is not a valid Cookie header");
-	}
-
-	cookie
+	raw
+		.split('|')
+		.enumerate()
+		.filter(|(_, part)| !part.trim().is_empty())
+		.filter_map(|(i, part)| {
+			let cookie = sanitize_cookie(part);
+			if cookie.is_none() {
+				// The value is a credential, so it must not be logged.
+				warn!("Ignoring session #{} in {REDDIT_COOKIE_SETTING}: not a valid Cookie header", i + 1);
+			}
+			cookie.map(|cookie| (i + 1, cookie))
+		})
+		.collect()
 }
+
+/// Index of the session the next blocked request starts with.
+static NEXT_SESSION: AtomicUsize = AtomicUsize::new(0);
 
 /// Trims and validates a `Cookie` header from configuration.
 ///
@@ -402,15 +414,12 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	// `%2f` workaround in encode_thread_route() unnecessary, because the
 	// block it used to dodge is gone: Reddit now rejects the request for who
 	// is asking, not for which path it is.
-	let session = session_cookie();
+	let sessions = session_cookies();
 
 	// Fetch the url. Thread routes need the slash between the subreddit and
 	// `comments` encoded; see encode_thread_route(). With a session there is
 	// nothing to dodge, so the plain path is better.
-	let first_path = match &session {
-		Some(_) => path.clone(),
-		None => encode_thread_route(&path),
-	};
+	let first_path = if sessions.is_empty() { encode_thread_route(&path) } else { path.clone() };
 
 	match reddit_get(first_path, quarantine).await {
 		Ok(response) => {
@@ -419,18 +428,20 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 
 			// Reddit answers logged-out `.json` requests with an HTML block
 			// page and HTTP 403. The same path on the web host returns JSON
-			// once it carries a user session, so retry it there.
-			if response.status() == wreq::StatusCode::FORBIDDEN {
-				if let Some(cookie) = &session {
+			// once it carries a user session, so retry it there. Sessions take
+			// turns; a refused one passes the request on to the next.
+			if response.status() == wreq::StatusCode::FORBIDDEN && !sessions.is_empty() {
+				let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
+				for i in 0..sessions.len() {
+					let (number, cookie) = &sessions[(start + i) % sessions.len()];
 					match reddit_web_get(&path, cookie).await {
-						// A redirect to the login page is adopted too: it has a
-						// more useful error message than the block page.
-						Ok(web_response) if !web_response.status().is_client_error() && !web_response.status().is_server_error() => {
-							trace!("Retried {path} with the logged-in web session: status {}", web_response.status());
+						Ok(web_response) if web_response.status().is_success() => {
+							trace!("Retried {path} with session #{number}: status {}", web_response.status());
 							response = web_response;
 							from_web_session = true;
+							break;
 						}
-						Ok(web_response) => warn!("The logged-in web session was refused for {path}: status {}", web_response.status()),
+						Ok(web_response) => warn!("Session #{number} was refused for {path}: status {}", web_response.status()),
 						Err(e) => warn!("Couldn't reach Reddit's web host for {path}: {e}"),
 					}
 				}
@@ -470,8 +481,8 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 					let has_remaining = body.has_remaining();
 
 					if !has_remaining {
-						// Reddit sends an expired session to its login page,
-						// which has an empty body.
+						// An empty body from the web host is not the OAuth
+						// rate limit.
 						if from_web_session {
 							return Err(blocked_error(&path));
 						}
@@ -787,13 +798,24 @@ mod tests {
 	#[test]
 	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=abc; token_v2=def")])]
 	fn test_session_cookie_comes_from_the_environment() {
-		assert_eq!(session_cookie().as_deref(), Some("reddit_session=abc; token_v2=def"));
+		assert_eq!(session_cookies(), vec![(1, "reddit_session=abc; token_v2=def".to_string())]);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=a; token_v2=b | reddit_session=c\u{1}| |reddit_session=d")])]
+	fn test_several_session_cookies_are_split_and_numbered() {
+		// The invalid second session is dropped, the empty one skipped, and the
+		// numbers keep pointing at the position in the setting.
+		assert_eq!(
+			session_cookies(),
+			vec![(1, "reddit_session=a; token_v2=b".to_string()), (4, "reddit_session=d".to_string())]
+		);
 	}
 
 	#[test]
 	#[sealed_test]
 	fn test_session_cookie_is_optional() {
-		assert_eq!(session_cookie(), None);
+		assert!(session_cookies().is_empty());
 	}
 
 	#[test]
