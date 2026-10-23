@@ -74,7 +74,14 @@ From [VictorVow1](https://github.com/VictorVow1) ([#16](https://github.com/Nacht
 
 - **RSS feeds for every listing Reddit has feeds for**, using the same URLs as Reddit. See [RSS feeds](#rss-feeds).
 
+From [0dragosh](https://github.com/0dragosh) ([patch](https://gist.github.com/0dragosh/6afe28f5e4f8659f5ae04ac2b418402b), [redlib-org#446](https://github.com/redlib-org/redlib/issues/446)):
+
+- **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. When a request is blocked, it is retried on `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. The cookie never shows on `/info` and is never logged. See [Reddit session](README.md#reddit-session).
+
 Own features:
+
+- **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
+- **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
@@ -88,6 +95,7 @@ Own features:
 | Variable | Default | Description |
 |---|---|---|
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
+| `REDLIB_REDDIT_COOKIE` | (empty) | `Cookie` header of a logged-in reddit.com session, several separated by `\|`. Needed for post pages. **Secret.** |
 | `REDLIB_SOURCE_URL` | `https://github.com/redlib-org/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
 
 ### New user settings

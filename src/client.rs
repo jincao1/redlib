@@ -1,4 +1,5 @@
 use crate::body::Body;
+use crate::config::get_setting;
 use crate::dbg_msg;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
 use crate::server::RequestExt;
@@ -14,7 +15,7 @@ use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicBool, AtomicU16};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize};
 use std::sync::LazyLock;
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -28,6 +29,14 @@ const REDDIT_SHORT_URL_BASE_HOST: &str = "redd.it";
 
 const ALTERNATIVE_REDDIT_URL_BASE: &str = "https://www.reddit.com";
 const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
+
+/// Configuration variable holding the `Cookie` header of a logged-in
+/// reddit.com session.
+const REDDIT_COOKIE_SETTING: &str = "REDLIB_REDDIT_COOKIE";
+
+/// Upper bound for the configured cookie. A browser sends a few kilobytes at
+/// most; anything larger is a configuration mistake.
+const REDDIT_COOKIE_MAX_LEN: usize = 8192;
 
 pub static CLIENT: LazyLock<WreqClient> = LazyLock::new(build_client);
 
@@ -70,6 +79,64 @@ pub fn build_client() -> WreqClient {
 		.redirect(Policy::none())
 		.build()
 		.expect("Should always be able to build a client")
+}
+
+/// The `Cookie` headers of logged-in reddit.com sessions, from configuration.
+///
+/// Reddit stopped serving `.json` to logged-out clients: it answers with an
+/// HTML block page and HTTP 403. A real session cookie makes the same request
+/// return JSON, which is the only way to keep post and comment pages working.
+/// Several sessions are separated by `|` and used in turn.
+fn session_cookies() -> Vec<(usize, String)> {
+	let Some(raw) = get_setting(REDDIT_COOKIE_SETTING) else {
+		return Vec::new();
+	};
+
+	raw
+		.split('|')
+		.enumerate()
+		.filter(|(_, part)| !part.trim().is_empty())
+		.filter_map(|(i, part)| {
+			let cookie = sanitize_cookie(part);
+			if cookie.is_none() {
+				// The value is a credential, so it must not be logged.
+				warn!("Ignoring session #{} in {REDDIT_COOKIE_SETTING}: not a valid Cookie header", i + 1);
+			}
+			cookie.map(|cookie| (i + 1, cookie))
+		})
+		.collect()
+}
+
+/// Index of the session the next blocked request starts with.
+static NEXT_SESSION: AtomicUsize = AtomicUsize::new(0);
+
+/// Trims and validates a `Cookie` header from configuration.
+///
+/// The value goes into a single header line, so control characters (which could
+/// end the line and inject another header) and non-ASCII bytes are rejected
+/// rather than forwarded to Reddit.
+fn sanitize_cookie(raw: &str) -> Option<String> {
+	let cookie = raw.trim();
+
+	if cookie.is_empty() || cookie.len() > REDDIT_COOKIE_MAX_LEN || !cookie.is_ascii() || cookie.chars().any(char::is_control) {
+		return None;
+	}
+
+	Some(cookie.to_string())
+}
+
+/// Fetches `path` from Reddit's web host as the logged-in session in
+/// `REDLIB_REDDIT_COOKIE`.
+///
+/// Only the cookie is overridden: the client's browser emulation already sends
+/// the TLS, HTTP/2 and default headers Reddit expects next to a session cookie,
+/// and a mismatch between them is what gets a cookie refused. Redirects are not
+/// followed, because Reddit sends an expired session to its login page and that
+/// must be reported rather than parsed as JSON.
+async fn reddit_web_get(path: &str, cookie: &str) -> Result<WreqResponse, String> {
+	let url = format!("{ALTERNATIVE_REDDIT_URL_BASE}{path}");
+
+	CLIENT.get(&url).header(wreq_header::COOKIE, cookie).send().await.map_err(|e| e.to_string())
 }
 
 /// Gets the canonical path for a resource on Reddit. This is accomplished by
@@ -342,28 +409,68 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	}
 	burn_rate_limit_unit();
 
+	// A logged-in web session is used when Reddit blocks an endpoint for
+	// logged-out clients (see the 403 handling below). It also makes the
+	// `%2f` workaround in encode_thread_route() unnecessary, because the
+	// block it used to dodge is gone: Reddit now rejects the request for who
+	// is asking, not for which path it is.
+	let sessions = session_cookies();
+
 	// Fetch the url. Thread routes need the slash between the subreddit and
-	// `comments` encoded; see encode_thread_route().
-	match reddit_get(encode_thread_route(&path), quarantine).await {
+	// `comments` encoded; see encode_thread_route(). With a session there is
+	// nothing to dodge, so the plain path is better.
+	let first_path = if sessions.is_empty() { encode_thread_route(&path) } else { path.clone() };
+
+	match reddit_get(first_path, quarantine).await {
 		Ok(response) => {
+			let mut response = response;
+			let mut from_web_session = false;
+
+			// Reddit answers logged-out `.json` requests with an HTML block
+			// page and HTTP 403. The same path on the web host returns JSON
+			// once it carries a user session, so retry it there. Sessions take
+			// turns; a refused one passes the request on to the next.
+			if response.status() == wreq::StatusCode::FORBIDDEN && !sessions.is_empty() {
+				let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
+				for i in 0..sessions.len() {
+					let (number, cookie) = &sessions[(start + i) % sessions.len()];
+					match reddit_web_get(&path, cookie).await {
+						Ok(web_response) if web_response.status().is_success() => {
+							trace!("Retried {path} with session #{number}: status {}", web_response.status());
+							response = web_response;
+							from_web_session = true;
+							break;
+						}
+						Ok(web_response) => warn!("Session #{number} was refused for {path}: status {}", web_response.status()),
+						Err(e) => warn!("Couldn't reach Reddit's web host for {path}: {e}"),
+					}
+				}
+			}
+
 			let status = response.status();
 
-			let reset: Option<String> = if let (Some(remaining), Some(reset), Some(used)) = (
-				response.headers().get("x-ratelimit-remaining").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
-				response.headers().get("x-ratelimit-reset").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
-				response.headers().get("x-ratelimit-used").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
-			) {
-				trace!(
-					"Ratelimit remaining: Header says {remaining}, we have {current_rate_limit}. Resets in {reset}. Rollover: {}. Ratelimit used: {used}",
-					if is_rolling_over { "yes" } else { "no" },
-				);
+			// Only the OAuth endpoint reports the instance's rate limit; the
+			// web endpoint has its own limits and must not overwrite it.
+			let reset: Option<String> = if !from_web_session {
+				if let (Some(remaining), Some(reset), Some(used)) = (
+					response.headers().get("x-ratelimit-remaining").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
+					response.headers().get("x-ratelimit-reset").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
+					response.headers().get("x-ratelimit-used").and_then(|val| val.to_str().ok().map(|s| s.to_string())),
+				) {
+					trace!(
+						"Ratelimit remaining: Header says {remaining}, we have {current_rate_limit}. Resets in {reset}. Rollover: {}. Ratelimit used: {used}",
+						if is_rolling_over { "yes" } else { "no" },
+					);
 
-				// If can parse remaining as a float, round to a u16 and save
-				if let Ok(val) = remaining.parse::<f32>() {
-					OAUTH_RATELIMIT_REMAINING.store(val.round() as u16, Ordering::SeqCst);
+					// If can parse remaining as a float, round to a u16 and save
+					if let Ok(val) = remaining.parse::<f32>() {
+						OAUTH_RATELIMIT_REMAINING.store(val.round() as u16, Ordering::SeqCst);
+					}
+
+					Some(reset)
+				} else {
+					None
 				}
-
-				Some(reset)
 			} else {
 				None
 			};
@@ -374,6 +481,12 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 					let has_remaining = body.has_remaining();
 
 					if !has_remaining {
+						// An empty body from the web host is not the OAuth
+						// rate limit.
+						if from_web_session {
+							return Err(blocked_error(&path));
+						}
+
 						// Rate limited, so spawn a force_refresh_token()
 						tokio::spawn(force_refresh_token());
 						return match reset {
@@ -432,6 +545,9 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
+							if from_web_session {
+								return Err(blocked_error(&path));
+							}
 							Err(non_json_response_error(status.as_u16(), &e.to_string(), &path))
 						}
 					}
@@ -487,21 +603,37 @@ fn encode_thread_route(path: &str) -> String {
 
 /// Builds the user-facing error for a response that Reddit did not send as JSON.
 ///
-/// Reddit answers requests it refuses to serve - most notably the
-/// thread/comment endpoints for anonymous and app-only OAuth clients - with an
-/// HTML "You've been blocked by network security" page rather than JSON.
-/// Reporting that as a JSON parse error sends users looking for a bug in
-/// Redlib, so name the real cause instead.
+/// Reddit answers logged-out clients - for every `.json` endpoint, not just the
+/// thread/comment ones - with an HTML "You've been blocked by network security"
+/// page rather than JSON. Reporting that as a JSON parse error sends users
+/// looking for a bug in Redlib, so name the real cause and the setting that
+/// fixes it instead.
+///
+/// The text is the same whether or not a session is configured, so visitors
+/// can't tell if the instance has one.
 ///
 /// See <https://github.com/redlib-org/redlib/issues/591>.
 fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String {
 	if status == 403 {
-		format!("Reddit blocked this request (403 Forbidden): Reddit now requires a logged-in session for this endpoint | {path}")
-	} else if (500..=599).contains(&status) {
-		"Reddit is having issues, check if there's an outage".to_string()
-	} else {
-		format!("Failed to parse page JSON data: {parse_error} | {path}")
+		return blocked_error(path);
 	}
+
+	if status == 429 {
+		return format!("Reddit is rate limiting this instance (429 Too Many Requests). Try again in a minute. | {path}");
+	}
+
+	if (500..=599).contains(&status) {
+		return "Reddit is having issues, check if there's an outage".to_string();
+	}
+
+	format!("Failed to parse page JSON data: {parse_error} | {path}")
+}
+
+fn blocked_error(path: &str) -> String {
+	format!(
+		"Reddit blocked this request (403 Forbidden): Reddit only serves this page to logged-in sessions. \
+		 If you host this instance, set or renew {REDDIT_COOKIE_SETTING}. | {path}"
+	)
 }
 
 async fn self_check(sub: &str) -> Result<(), String> {
@@ -617,7 +749,73 @@ mod tests {
 		let msg = non_json_response_error(403, "expected value at line 1 column 1", "/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1");
 		assert!(msg.contains("403"), "{msg}");
 		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
+
+		// It must name the setting that makes the page work again.
+		assert!(msg.contains("REDLIB_REDDIT_COOKIE"), "{msg}");
 		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
+		assert_eq!(msg, blocked_error("/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1"));
+	}
+
+	#[test]
+	fn test_rate_limited_html_response_says_so() {
+		assert_eq!(
+			non_json_response_error(429, "expected value at line 1 column 1", "/r/x/hot.json"),
+			"Reddit is rate limiting this instance (429 Too Many Requests). Try again in a minute. | /r/x/hot.json"
+		);
+	}
+
+	#[test]
+	fn test_cookie_is_trimmed_and_kept_intact() {
+		assert_eq!(
+			sanitize_cookie("  reddit_session=abc; token_v2=def; over18=1\n").as_deref(),
+			Some("reddit_session=abc; token_v2=def; over18=1")
+		);
+	}
+
+	#[test]
+	fn test_empty_cookie_is_not_a_cookie() {
+		assert_eq!(sanitize_cookie(""), None);
+		assert_eq!(sanitize_cookie("   \n\t "), None);
+	}
+
+	#[test]
+	fn test_cookie_cannot_inject_headers() {
+		// A newline in the value would let it add headers to the request. A
+		// trailing newline alone is harmless and trimmed, so test a second line.
+		assert_eq!(sanitize_cookie("reddit_session=abc\r\nX-Injected: yes"), None);
+		assert_eq!(sanitize_cookie("reddit_session=abc\nSet-Cookie: evil=1"), None);
+		assert_eq!(sanitize_cookie("reddit_session=abc\u{0}"), None);
+		// Header values are ASCII: non-ASCII bytes are not valid there.
+		assert_eq!(sanitize_cookie("reddit_session=ábc"), None);
+	}
+
+	#[test]
+	fn test_overlong_cookie_is_rejected() {
+		let cookie = format!("reddit_session={}", "a".repeat(REDDIT_COOKIE_MAX_LEN));
+		assert_eq!(sanitize_cookie(&cookie), None);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=abc; token_v2=def")])]
+	fn test_session_cookie_comes_from_the_environment() {
+		assert_eq!(session_cookies(), vec![(1, "reddit_session=abc; token_v2=def".to_string())]);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=a; token_v2=b | reddit_session=c\u{1}| |reddit_session=d")])]
+	fn test_several_session_cookies_are_split_and_numbered() {
+		// The invalid second session is dropped, the empty one skipped, and the
+		// numbers keep pointing at the position in the setting.
+		assert_eq!(
+			session_cookies(),
+			vec![(1, "reddit_session=a; token_v2=b".to_string()), (4, "reddit_session=d".to_string())]
+		);
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_session_cookie_is_optional() {
+		assert!(session_cookies().is_empty());
 	}
 
 	#[test]

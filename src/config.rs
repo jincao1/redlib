@@ -124,6 +124,15 @@ pub struct Config {
 
 	#[serde(rename = "REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH")]
 	pub(crate) default_max_comment_thread_depth: Option<String>,
+
+	/// A logged-in Reddit web session, sent as the `Cookie` header on requests
+	/// Reddit refuses to serve to logged-out clients.
+	///
+	/// This is a credential, so it must never be serialized: `/info.json` and
+	/// `/info.yaml` serialize the whole config.
+	#[serde(rename = "REDLIB_REDDIT_COOKIE")]
+	#[serde(skip_serializing)]
+	pub(crate) reddit_cookie: Option<String>,
 }
 
 impl Config {
@@ -178,6 +187,7 @@ impl Config {
 			default_clean_urls: parse("REDLIB_DEFAULT_CLEAN_URLS"),
 			default_posts_per_page: parse("REDLIB_DEFAULT_POSTS_PER_PAGE"),
 			default_max_comment_thread_depth: parse("REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH"),
+			reddit_cookie: parse("REDLIB_REDDIT_COOKIE"),
 		}
 	}
 }
@@ -214,6 +224,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_CLEAN_URLS" => config.default_clean_urls.clone(),
 		"REDLIB_DEFAULT_POSTS_PER_PAGE" => config.default_posts_per_page.clone(),
 		"REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH" => config.default_max_comment_thread_depth.clone(),
+		"REDLIB_REDDIT_COOKIE" => config.reddit_cookie.clone(),
 		_ => None,
 	}
 }
@@ -304,5 +315,25 @@ mod tests {
 		write("redlib.toml", config_to_write).unwrap();
 		assert!(get_setting("REDLIB_PUSHSHIFT_FRONTEND").is_some());
 		assert_eq!(get_setting("REDLIB_PUSHSHIFT_FRONTEND"), Some("https://api.pushshift.io".into()));
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=secret-cookie-value")])]
+	fn test_reddit_cookie_is_never_serialized() {
+		let config = Config::load();
+		assert_eq!(config.reddit_cookie.as_deref(), Some("reddit_session=secret-cookie-value"));
+
+		// `/info.json` and `/info.yaml` serialize the whole config, so the
+		// session must not show up there.
+		assert!(!serde_json::to_string(&config).unwrap().contains("secret-cookie-value"));
+		assert!(!serde_yaml::to_string(&config).unwrap().contains("secret-cookie-value"));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_reddit_cookie_from_config_file() {
+		let config_to_write = r#"REDLIB_REDDIT_COOKIE = "reddit_session=from-file""#;
+		write("redlib.toml", config_to_write).unwrap();
+		assert_eq!(get_setting("REDLIB_REDDIT_COOKIE"), Some("reddit_session=from-file".into()));
 	}
 }
