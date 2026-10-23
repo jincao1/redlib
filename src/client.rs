@@ -101,7 +101,7 @@ pub fn build_client() -> WreqClient {
 /// HTML block page and HTTP 403. A real session cookie makes the same request
 /// return JSON, which is the only way to keep post and comment pages working.
 /// Several sessions are separated by `|` and used in turn.
-fn session_cookies() -> Vec<(usize, String)> {
+pub(crate) fn session_cookies() -> Vec<(usize, String)> {
 	let Some(raw) = get_setting(REDDIT_COOKIE_SETTING) else {
 		return Vec::new();
 	};
@@ -476,6 +476,16 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		Err(format!("{msg}: {e} | {path}"))
 	};
 
+	// Reddit ignores the quarantine opt-in cookie for logged-in sessions, so
+	// subreddits the visitor opted into are fetched the anonymous way below.
+	#[cfg(feature = "obscura")]
+	if crate::obscura_client::enabled() {
+		match web_json(&path).await {
+			Err(e) if quarantine && (e == "quarantined" || e == "gated") => {}
+			result => return result,
+		}
+	}
+
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);
@@ -576,49 +586,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 
 					// Parse the response from Reddit as JSON
 					match serde_json::from_reader(body.reader()) {
-						Ok(value) => {
-							let json: Value = value;
-
-							// If user is suspended
-							if let Some(data) = json.get("data") {
-								if let Some(is_suspended) = data.get("is_suspended").and_then(Value::as_bool) {
-									if is_suspended {
-										return Err("suspended".into());
-									}
-								}
-							}
-
-							// If Reddit returned an error
-							if json["error"].is_i64() {
-								// OAuth token has expired; http status 401
-								if json["message"] == "Unauthorized" {
-									error!("Forcing a token refresh");
-									let () = force_refresh_token().await;
-									return Err("OAuth token has expired. Please refresh the page!".to_string());
-								}
-
-								// Handle quarantined
-								if json["reason"] == "quarantined" {
-									return Err("quarantined".into());
-								}
-								// Handle gated
-								if json["reason"] == "gated" {
-									return Err("gated".into());
-								}
-								// Handle private subs
-								if json["reason"] == "private" {
-									return Err("private".into());
-								}
-								// Handle banned subs
-								if json["reason"] == "banned" {
-									return Err("banned".into());
-								}
-
-								Err(format!("Reddit error {} \"{}\": {} | {path}", json["error"], json["reason"], json["message"]))
-							} else {
-								Ok(json)
-							}
-						}
+						Ok(json) => check_json(json, &path).await,
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
 							if from_web_session {
@@ -632,6 +600,64 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// Fetches `path` from Reddit's web host through Obscura as a logged-in session.
+#[cfg(feature = "obscura")]
+async fn web_json(path: &str) -> Result<Value, String> {
+	let (status, body) = crate::obscura_client::get(path)
+		.await
+		.map_err(|e| format!("Couldn't send request to Reddit: {e} | {path}"))?;
+	match serde_json::from_slice(&body) {
+		Ok(json) => check_json(json, path).await,
+		Err(e) => Err(match status {
+			429 | 500..=599 => non_json_response_error(status, &e.to_string(), path),
+			_ => blocked_error(path),
+		}),
+	}
+}
+
+/// Turns the errors Reddit reports inside a JSON body into redlib errors.
+async fn check_json(json: Value, path: &str) -> Result<Value, String> {
+	// If user is suspended
+	if let Some(data) = json.get("data") {
+		if let Some(is_suspended) = data.get("is_suspended").and_then(Value::as_bool) {
+			if is_suspended {
+				return Err("suspended".into());
+			}
+		}
+	}
+
+	// If Reddit returned an error
+	if json["error"].is_i64() {
+		// OAuth token has expired; http status 401
+		if json["message"] == "Unauthorized" {
+			error!("Forcing a token refresh");
+			let () = force_refresh_token().await;
+			return Err("OAuth token has expired. Please refresh the page!".to_string());
+		}
+
+		// Handle quarantined
+		if json["reason"] == "quarantined" {
+			return Err("quarantined".into());
+		}
+		// Handle gated
+		if json["reason"] == "gated" {
+			return Err("gated".into());
+		}
+		// Handle private subs
+		if json["reason"] == "private" {
+			return Err("private".into());
+		}
+		// Handle banned subs
+		if json["reason"] == "banned" {
+			return Err("banned".into());
+		}
+
+		Err(format!("Reddit error {} \"{}\": {} | {path}", json["error"], json["reason"], json["message"]))
+	} else {
+		Ok(json)
 	}
 }
 

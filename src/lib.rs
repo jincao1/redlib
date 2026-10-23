@@ -5,6 +5,8 @@ pub mod duplicates;
 pub mod instance_info;
 pub mod oauth;
 pub mod oauth_resources;
+#[cfg(feature = "obscura")]
+pub mod obscura_client;
 pub mod post;
 pub mod redgifs;
 pub mod search;
