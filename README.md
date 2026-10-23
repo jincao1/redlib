@@ -423,6 +423,8 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
+| `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Scrapes post pages from Reddit's HTML when Reddit blocks them. See [Scrape fallback](#scrape-fallback). |
+| `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
 
 ### Reddit session
@@ -434,6 +436,12 @@ REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=... | reddit_session=...;token
 ```
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
+
+### Scrape fallback
+
+When Reddit blocks a post page and no session gets through, Redlib scrapes the comments from the HTML Reddit serves logged-out visitors. It shows Reddit's first batch; "More comments" and "More replies" fetch more when clicked. To load more up front, set `REDLIB_SCRAPE_COMMENT_PREFETCH` to the number of extra requests per page, e.g. `5`.
+
+Scraped pages cost Reddit extra requests and may break when Reddit changes its pages. Set `REDLIB_ENABLE_SCRAPE_FALLBACK=off` to show the block error instead.
 
 ## Default user settings
 
