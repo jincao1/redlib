@@ -423,35 +423,17 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
-| `REDDIT_COOKIE`           | String          | (empty)                                | `Cookie` request header of a logged-in reddit.com session; separate several sessions with `|`. Without it, Reddit blocks post and comment pages. **Secret.** See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...; token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
 
 ### Reddit session
 
-Reddit no longer serves its `.json` endpoints to logged-out clients: it answers with an HTML "You've been blocked by network security" page and HTTP 403. Listings still work through Redlib's anonymous app token, but post and comment pages need a real login. Set `REDLIB_REDDIT_COOKIE` to the cookie header of a logged-in browser session to make those pages work again:
-
-1. Sign in to reddit.com, ideally with a throwaway account rather than your main one.
-2. Open the browser's DevTools, switch to the Network tab, reload, pick any request to `www.reddit.com` and copy its entire `Cookie` request header. It starts with `reddit_session=...` and also contains `token_v2=...`.
-3. Set it as one line, either in the environment or in `redlib.toml`:
-
-   ```bash
-   REDLIB_REDDIT_COOKIE="reddit_session=...; token_v2=...; ..." redlib
-   ```
-
-   ```toml
-   REDLIB_REDDIT_COOKIE = "reddit_session=...; token_v2=...; ..."
-   ```
-
-Several sessions, ideally from different accounts, can be given at once, separated by `|`:
+Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` and `token_v2` cookies of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookies are needed. Separate several sessions with `|` to rotate between them:
 
 ```bash
-REDLIB_REDDIT_COOKIE="reddit_session=...; token_v2=... | reddit_session=...; token_v2=..." redlib
+REDLIB_REDDIT_COOKIE="reddit_session=...; token_v2=... | reddit_session=...; token_v2=..."
 ```
 
-Blocked requests use them in turn. If Reddit refuses one, the same request moves on to the next, so a single expired session doesn't break any pages. The log names a refused session only by its position (`Session #2 was refused`).
-
-Copy the cookie from Chrome or Firefox: the instance presents itself as one of those browsers, and Reddit is more likely to refuse a session that comes with a different browser fingerprint. Only requests Reddit blocks are retried with the session, so the account is not used for the instance's regular listing traffic.
-
-The cookie is a credential. It grants full access to the account, is never shown on `/info`, and must not end up in screenshots, shell history or container images. When it expires (Reddit signs the session out, the password changes, or the cookie rotates), post pages show the same block message as an instance without a session, so visitors can't tell whether one is set; restart Redlib with a fresh cookie. Also note that clicking "Log out" on reddit.com ends the session on Reddit's side.
+**Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 
 ## Default user settings
 
