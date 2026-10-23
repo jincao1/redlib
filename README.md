@@ -440,7 +440,7 @@ REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=...|reddit_session=...;token_v
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 
-With a session set, Redlib sends every Reddit API request through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser to `www.reddit.com`. Only the amd64 image includes it. Building from source includes it by default, which needs x86_64 or aarch64; elsewhere build with `cargo build --release --no-default-features` to keep the plain HTTP client.
+With a session set, Redlib sends every Reddit API request through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser to `www.reddit.com`. It is only in the `ghcr.io/nachtalb/redlib:latest-obscura` image (amd64 only), or build with `cargo build --release --features obscura`. `latest` and default builds keep the plain HTTP client.
 
 ### Scrape fallback
 
