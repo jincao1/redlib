@@ -69,7 +69,7 @@ clearurls = "0.0.4"
 obscura = { git = "https://github.com/h4ckf0r0day/obscura", rev = "09790944a405ba81a7df27bc2577c6b0db283900", features = ["stealth"], optional = true }
 
 [features]
-default = ["obscura"]
+default = []
 obscura = ["dep:obscura"]
 
 

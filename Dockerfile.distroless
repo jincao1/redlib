@@ -35,12 +35,14 @@ COPY . ./
 ARG TARGETARCH
 ARG TARGETVARIANT
 ARG GIT_HASH=dev
-# Obscura (V8) runs only in the amd64 image; the other platforms use the plain HTTP client.
+# OBSCURA=true embeds the Obscura browser (V8); only the amd64 image is built and tested with it.
+ARG OBSCURA=false
 RUN --mount=type=cache,id=cargo-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=cargo-git,target=/root/.cargo/git \
     --mount=type=cache,id=redlib-target-${TARGETARCH}${TARGETVARIANT},target=/redlib/target \
-    if [ "$TARGETARCH" = amd64 ]; then features=""; else features="--no-default-features"; fi \
-    && cargo build --release --locked $features --bin redlib && cp target/$CARGO_BUILD_TARGET/release/redlib /usr/local/bin/redlib
+    features=""; \
+    if [ "$OBSCURA" = true ]; then features="--features obscura"; fi; \
+    cargo build --release --locked $features --bin redlib && cp target/$CARGO_BUILD_TARGET/release/redlib /usr/local/bin/redlib
 
 ########################
 ## release image
