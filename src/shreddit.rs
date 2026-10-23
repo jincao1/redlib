@@ -6,6 +6,7 @@
 //! `Listing` JSON, so comment parsing and rendering stay unchanged.
 
 use crate::client::shreddit_fragment;
+use crate::utils::scrape_comment_prefetch;
 use cached::proc_macro::cached;
 use chrono::DateTime;
 use log::warn;
@@ -26,6 +27,8 @@ struct CrawlLimits {
 	concurrency: usize,
 }
 
+/// `max_expansions` comes from `REDLIB_SCRAPE_COMMENT_PREFETCH`, which
+/// defaults to 0: further comments are only loaded when a visitor asks.
 const CRAWL_LIMITS: CrawlLimits = CrawlLimits {
 	max_comments: 200,
 	max_expansions: 0,
@@ -68,7 +71,11 @@ pub async fn comments(subreddit: String, post_id: String, comment_id: Option<Str
 
 	let mut tree = CommentTree::new(format!("t3_{post_id}"), comment_id.map(|id| format!("t1_{id}")));
 	tree.add(parse_fragment(&html));
-	expand(&mut tree, CRAWL_LIMITS, |path, cursor| shreddit_fragment(path, Some(cursor))).await;
+	let limits = CrawlLimits {
+		max_expansions: scrape_comment_prefetch(),
+		..CRAWL_LIMITS
+	};
+	expand(&mut tree, limits, |path, cursor| shreddit_fragment(path, Some(cursor))).await;
 
 	let context = context.and_then(|context| context.parse().ok()).unwrap_or(0);
 	Ok(tree.into_listing(context))

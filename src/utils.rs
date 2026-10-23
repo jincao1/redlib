@@ -1557,6 +1557,11 @@ pub fn enable_scrape_fallback() -> bool {
 	get_setting("REDLIB_ENABLE_SCRAPE_FALLBACK").is_none_or(|val| val != "off")
 }
 
+/// Extra "more comments" requests a scraped post page makes up front.
+pub fn scrape_comment_prefetch() -> usize {
+	get_setting("REDLIB_SCRAPE_COMMENT_PREFETCH").and_then(|val| val.parse().ok()).unwrap_or(0)
+}
+
 /// Returns true if the config/env variable `REDLIB_ROBOTS_DISABLE_INDEXING` carries the
 /// value `on`.
 ///
