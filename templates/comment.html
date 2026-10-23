@@ -1,6 +1,8 @@
 {% import "utils.html" as utils %}
 
-{% if kind == "more" && parent_kind == "t1" %}
+{% if kind == "more" && more_href != "" %}
+    <a class="deeper_replies" href="{{ post_link }}?{{ more_href }}">&rarr; More {% if parent_kind == "t1" %}replies{% else %}comments{% endif %}{% if more_count > 0 %} ({{ more_count }}){% endif %}</a>
+{% else if kind == "more" && parent_kind == "t1" %}
     {% if more_count > 0 %}
         <a class="deeper_replies" href="{{ post_link }}{{ parent_id }}">&rarr; More replies ({{ more_count }})</a>
     {% else %}

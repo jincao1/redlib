@@ -43,13 +43,28 @@ static MORE_COMMENTS: LazyLock<Selector> = LazyLock::new(|| Selector::parse("fac
 static CURSOR: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"input[name="cursor"]"#).unwrap());
 static COUNT: LazyLock<Selector> = LazyLock::new(|| Selector::parse("faceplate-number[number]").unwrap());
 
+/// A "more comments" placeholder to load: its cursor and the query string of
+/// its `/svc/shreddit/more-comments/` path.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct More {
+	pub cursor: String,
+	pub query: String,
+}
+
 /// Fetch the comment tree of a post as a Reddit API comment `Listing`.
+/// Unloaded comments become `more` stubs carrying their `cursor` and
+/// `more_query`, so they can be loaded later with `more`.
 ///
-/// When `comment_id` is set, only that comment's thread is returned, preceded
-/// by up to `context` ancestors, mirroring the API's comment permalinks.
+/// `more` loads one placeholder instead of the first page; its comments are
+/// returned as top-level comments. When `comment_id` is set, only that
+/// comment's thread is returned, preceded by up to `context` ancestors,
+/// mirroring the API's comment permalinks.
 #[cached(max_size = 100, ttl_secs = 30)]
-pub async fn comments(subreddit: String, post_id: String, comment_id: Option<String>, sort: String, context: Option<String>) -> Result<Value, String> {
-	let html = shreddit_fragment(comments_path(&subreddit, &post_id, comment_id.as_deref(), &sort), None).await?;
+pub async fn comments(subreddit: String, post_id: String, comment_id: Option<String>, sort: String, context: Option<String>, more: Option<More>) -> Result<Value, String> {
+	let html = match &more {
+		Some(more) => shreddit_fragment(more_path(&subreddit, &post_id, &more.query), Some(more.cursor.clone())).await?,
+		None => shreddit_fragment(comments_path(&subreddit, &post_id, comment_id.as_deref(), &sort), None).await?,
+	};
 
 	let mut tree = CommentTree::new(format!("t3_{post_id}"), comment_id.map(|id| format!("t1_{id}")));
 	tree.add(parse_fragment(&html));
@@ -57,6 +72,15 @@ pub async fn comments(subreddit: String, post_id: String, comment_id: Option<Str
 
 	let context = context.and_then(|context| context.parse().ok()).unwrap_or(0);
 	Ok(tree.into_listing(context))
+}
+
+/// The query comes from the visitor's URL, so it is parsed and re-encoded
+/// rather than pasted into the path.
+fn more_path(subreddit: &str, post_id: &str, query: &str) -> String {
+	let query = url::form_urlencoded::Serializer::new(String::new())
+		.extend_pairs(url::form_urlencoded::parse(query.as_bytes()))
+		.finish();
+	format!("{MORE_COMMENTS_PATH_PREFIX}{subreddit}/t3_{post_id}?{query}")
 }
 
 fn comments_path(subreddit: &str, post_id: &str, comment_id: Option<&str>, sort: &str) -> String {
@@ -127,7 +151,7 @@ struct Fragment {
 
 enum Child {
 	Comment(String),
-	More(i64),
+	More(MoreComments),
 }
 
 /// Comments accumulated across fragments, keyed by fullname (`t1_...`).
@@ -171,8 +195,11 @@ impl CommentTree {
 			} else {
 				format!("{},{}", comment.parent_positions, comment.position)
 			};
+			// A parent that isn't loaded (the top of a single loaded
+			// placeholder) makes the comment top-level, so it isn't lost.
 			let parent = comment
 				.parent_id
+				.filter(|id| self.data.contains_key(id))
 				.or_else(|| (comment.depth > 0).then(|| self.positions.get(&comment.parent_positions).cloned()).flatten())
 				.unwrap_or_else(|| self.post.clone());
 
@@ -232,7 +259,7 @@ impl CommentTree {
 		let unexpanded: Vec<MoreComments> = self.pending.drain(..).chain(self.skipped.drain(..)).collect();
 		for more in unexpanded {
 			let parent = self.placeholder_parent(&more);
-			self.children.entry(parent).or_default().push(Child::More(more.count));
+			self.children.entry(parent).or_default().push(Child::More(more));
 		}
 
 		let thread = self.focus.as_ref().filter(|focus| self.data.contains_key(*focus)).map(|focus| {
@@ -269,10 +296,22 @@ impl CommentTree {
 				data["replies"] = if has_replies { self.listing(id, thread) } else { Value::String(String::new()) };
 				json!({ "kind": "t1", "data": data })
 			}
-			Child::More(count) => json!({
-				"kind": "more",
-				"data": { "count": count, "parent_id": parent, "id": "_", "children": [] }
-			}),
+			Child::More(more) => {
+				// A reply placeholder whose parent isn't loaded (the end of a
+				// loaded batch of replies) is still a reply.
+				let parent = if parent == self.post && more.parent_positions.is_some() { "t1_" } else { parent };
+				json!({
+					"kind": "more",
+					"data": {
+						"count": more.count,
+						"parent_id": parent,
+						"id": "_",
+						"children": [],
+						"cursor": more.cursor,
+						"more_query": more.path.split_once('?').map(|(_, query)| query).unwrap_or_default(),
+					}
+				})
+			}
 		}
 	}
 }
@@ -656,14 +695,27 @@ mod tests {
 	}
 
 	#[test]
-	fn test_lineage_survives_parent_cycles() {
-		let mut tree = CommentTree::new("t3_p".into(), Some("t1_z".into()));
+	fn test_unloaded_parent_makes_comment_top_level() {
+		let mut tree = CommentTree::new("t3_p".into(), None);
 		tree.add(parse_fragment(
-			r#"<shreddit-comment thingId="t1_x" parentId="t1_y" depth="1"></shreddit-comment>
-<shreddit-comment thingId="t1_y" parentId="t1_x" depth="1"></shreddit-comment>"#,
+			r#"<shreddit-comment thingId="t1_x" parentId="t1_gone" depth="1"></shreddit-comment>
+<shreddit-comment thingId="t1_y" parentId="t1_x" depth="2"></shreddit-comment>"#,
 		));
-		let x = "t1_x".to_string();
-		assert_eq!(tree.lineage(&x).count(), 3);
+		assert_eq!(tree.parents["t1_x"], "t3_p");
+		assert_eq!(tree.parents["t1_y"], "t1_x");
+	}
+
+	#[test]
+	fn test_reply_placeholder_of_unloaded_parent_stays_a_reply() {
+		let mut tree = CommentTree::new("t3_p".into(), None);
+		tree.add(parse_fragment(MORE_REPLIES));
+		tree.add(parse_fragment(
+			r#"<faceplate-partial src="/svc/shreddit/more-comments/t/t3_p?commentParentPositions=0" method="post"><input name="cursor" value="c9"></faceplate-partial>"#,
+		));
+		let listing = tree.into_listing(0);
+		let stub = listing["data"]["children"].as_array().unwrap().last().unwrap().clone();
+		assert_eq!(stub["kind"], "more");
+		assert_eq!(stub["data"]["parent_id"], "t1_");
 	}
 
 	#[test]
@@ -674,6 +726,17 @@ mod tests {
 		assert_eq!(stub["data"]["count"], 40);
 		assert_eq!(stub["data"]["parent_id"], "t3_p");
 		assert_eq!(stub["data"]["children"], json!([]));
+		assert_eq!(stub["data"]["cursor"], "c3");
+		assert_eq!(stub["data"]["more_query"], "top-level=1&comments-remaining=40&commentPositionOffset=2");
+	}
+
+	#[test]
+	fn test_more_path_reencodes_query() {
+		assert_eq!(
+			more_path("rust", "abc", "top-level=1&commentPositionOffset=2"),
+			"/svc/shreddit/more-comments/rust/t3_abc?top-level=1&commentPositionOffset=2"
+		);
+		assert_eq!(more_path("rust", "abc", "a=b c#frag&/x"), "/svc/shreddit/more-comments/rust/t3_abc?a=b+c%23frag&%2Fx=");
 	}
 
 	#[tokio::test]

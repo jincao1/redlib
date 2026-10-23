@@ -499,6 +499,8 @@ pub struct Comment {
 	pub collapsed: bool,
 	pub is_filtered: bool,
 	pub more_count: i64,
+	/// Query string of the post link that loads a scraped `more` placeholder; empty otherwise.
+	pub more_href: String,
 	pub prefs: Preferences,
 }
 

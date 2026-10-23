@@ -3,7 +3,7 @@ use crate::body::Body;
 use crate::client::{is_blocked_error, json};
 use crate::config::get_setting;
 use crate::server::RequestExt;
-use crate::shreddit;
+use crate::shreddit::{self, More};
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
 	build_rss_comment_item, build_rss_item, clean_url, enable_rss, enable_scrape_fallback, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes,
@@ -29,6 +29,8 @@ struct PostTemplate {
 	url: String,
 	url_without_query: String,
 	comment_query: String,
+	/// The page shows one batch of scraped comments loaded from a "more" link.
+	more_page: bool,
 }
 
 static COMMENT_SEARCH_CAPTURE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\?q=(.*)&type=comment").unwrap());
@@ -71,22 +73,31 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	let single_thread = req.param("comment_id").is_some();
 	let highlighted_comment = &req.param("comment_id").unwrap_or_default();
 
+	let more = param(&format!("?{params}"), "more_cursor").map(|cursor| More {
+		cursor,
+		query: param(&format!("?{params}"), "more_query").unwrap_or_default(),
+	});
+	let more_page = more.is_some();
+
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);
 	let response = match json(path, quarantined).await {
 		Ok(response) => response,
-		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => match scraped_thread(
-			req.param("id").unwrap_or_default(),
-			req.param("comment_id"),
-			param(&format!("?{params}"), "context"),
-			sort.clone(),
-			quarantined,
-		)
-		.await
-		{
-			Ok(response) => response,
-			Err(msg) => return error(req, &msg).await,
-		},
+		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => {
+			match scraped_thread(
+				req.param("id").unwrap_or_default(),
+				req.param("comment_id"),
+				param(&format!("?{params}"), "context"),
+				sort.clone(),
+				more,
+				quarantined,
+			)
+			.await
+			{
+				Ok(thread) => thread,
+				Err(msg) => return error(req, &msg).await,
+			}
+		}
 		Err(msg) if msg == "quarantined" || msg == "gated" => {
 			let sub = req.param("sub").unwrap_or_default();
 			return Ok(quarantine(&req, sub, &msg));
@@ -134,6 +145,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 		single_thread,
 		url: req_url,
 		comment_query: query,
+		more_page,
 	}))
 }
 
@@ -141,13 +153,13 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 /// from Reddit's web frontend. Used when Reddit only serves the thread's JSON
 /// to logged-in sessions: the post still comes from `/by_id`, the comments
 /// are scraped from the HTML Reddit serves logged-out visitors.
-async fn scraped_thread(id: String, comment_id: Option<String>, context: Option<String>, sort: String, quarantined: bool) -> Result<Value, String> {
+async fn scraped_thread(id: String, comment_id: Option<String>, context: Option<String>, sort: String, more: Option<More>, quarantined: bool) -> Result<Value, String> {
 	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantined).await?;
 	let Some(sub) = post["data"]["children"][0]["data"]["subreddit"].as_str() else {
 		return Err("Post not found".to_string());
 	};
 
-	let comments = shreddit::comments(sub.to_string(), id, comment_id, sort, context).await?;
+	let comments = shreddit::comments(sub.to_string(), id, comment_id, sort, context, more).await?;
 	Ok(json!([post, comments]))
 }
 
@@ -298,6 +310,15 @@ fn build_comment(
 	// Note that in certain (seemingly random) cases, the count is simply wrong.
 	let more_count = data["count"].as_i64().unwrap_or_default();
 
+	// Scraped comments carry what loads them: the query string of a post
+	// link that loads just this placeholder.
+	let more_href = data["cursor"].as_str().filter(|cursor| !cursor.is_empty()).map_or(String::new(), |cursor| {
+		url::form_urlencoded::Serializer::new(String::new())
+			.append_pair("more_cursor", cursor)
+			.append_pair("more_query", data["more_query"].as_str().unwrap_or_default())
+			.finish()
+	});
+
 	let awards: Awards = Awards::parse(&data["all_awardings"]);
 
 	let parent_kind_and_id = val(comment, "parent_id");
@@ -352,6 +373,7 @@ fn build_comment(
 		collapsed,
 		is_filtered,
 		more_count,
+		more_href,
 		prefs: Preferences::new(req),
 	}
 }
