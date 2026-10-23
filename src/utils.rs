@@ -1551,6 +1551,10 @@ pub fn enable_redgifs() -> bool {
 	get_setting("REDLIB_ENABLE_REDGIFS").is_none_or(|val| val != "off")
 }
 
+pub fn enable_scrape_fallback() -> bool {
+	get_setting("REDLIB_ENABLE_SCRAPE_FALLBACK").is_none_or(|val| val != "off")
+}
+
 /// Returns true if the config/env variable `REDLIB_ROBOTS_DISABLE_INDEXING` carries the
 /// value `on`.
 ///

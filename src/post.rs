@@ -1,17 +1,19 @@
 #![allow(clippy::cmp_owned)]
 use crate::body::Body;
-use crate::client::json;
+use crate::client::{is_blocked_error, json};
 use crate::config::get_setting;
 use crate::server::RequestExt;
+use crate::shreddit;
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
-	build_rss_comment_item, build_rss_item, clean_url, enable_rss, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, rss_page_link, rss_response,
-	setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
+	build_rss_comment_item, build_rss_item, clean_url, enable_rss, enable_scrape_fallback, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes,
+	rss_page_link, rss_response, setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
 };
 use askama::Template;
 use hyper::{Request, Response};
 use regex::Regex;
 use rss::ChannelBuilder;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -71,61 +73,82 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);
-	match json(path, quarantined).await {
-		// Otherwise, grab the JSON output from the request
-		Ok(response) => {
-			// Parse the JSON into Post and Comment structs
-			let mut post = parse_post(&response[0]["data"]["children"][0]).await;
-
-			let clean_urls = setting(&req, "clean_urls");
-			if clean_urls == "on".to_owned() {
-				post.media.url = clean_url(post.media.url);
-			}
-
-			let req_url = req.uri().to_string();
-			// Return landing page if this post if this Reddit deems this post
-			// NSFW, but we have also disabled the display of NSFW content
-			// or if the instance is SFW-only.
-			if post.nsfw && crate::utils::should_be_nsfw_gated(&req, &req_url) {
-				return Ok(nsfw_landing(req, req_url).await.unwrap_or_default());
-			}
-
-			let query_body = match COMMENT_SEARCH_CAPTURE.captures(&url) {
-				Some(captures) => captures.get(1).unwrap().as_str().replace("%20", " ").replace('+', " "),
-				None => String::new(),
-			};
-
-			let query_string = format!("q={query_body}&type=comment");
-			let form = url::form_urlencoded::parse(query_string.as_bytes()).collect::<HashMap<_, _>>();
-			let query = form.get("q").unwrap().clone().to_string();
-
-			let comments = match query.as_str() {
-				"" => parse_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &req),
-				_ => query_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &query, &req),
-			};
-
-			// Use the Post and Comment structs to generate a website to show users
-			Ok(template(&PostTemplate {
-				comments,
-				post,
-				url_without_query: url.clone().trim_end_matches(&format!("?q={query}&type=comment")).to_string(),
-				sort,
-				prefs: Preferences::new(&req),
-				single_thread,
-				url: req_url,
-				comment_query: query,
-			}))
+	let response = match json(path, quarantined).await {
+		Ok(response) => response,
+		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => match scraped_thread(
+			req.param("id").unwrap_or_default(),
+			req.param("comment_id"),
+			param(&params, "context"),
+			sort.clone(),
+			quarantined,
+		)
+		.await
+		{
+			Ok(response) => response,
+			Err(msg) => return error(req, &msg).await,
+		},
+		Err(msg) if msg == "quarantined" || msg == "gated" => {
+			let sub = req.param("sub").unwrap_or_default();
+			return Ok(quarantine(&req, sub, &msg));
 		}
-		// If the Reddit API returns an error, exit and send error page to user
-		Err(msg) => {
-			if msg == "quarantined" || msg == "gated" {
-				let sub = req.param("sub").unwrap_or_default();
-				Ok(quarantine(&req, sub, &msg))
-			} else {
-				error(req, &msg).await
-			}
-		}
+		Err(msg) => return error(req, &msg).await,
+	};
+
+	// Parse the JSON into Post and Comment structs
+	let mut post = parse_post(&response[0]["data"]["children"][0]).await;
+
+	let clean_urls = setting(&req, "clean_urls");
+	if clean_urls == "on".to_owned() {
+		post.media.url = clean_url(post.media.url);
 	}
+
+	let req_url = req.uri().to_string();
+	// Return landing page if this post if this Reddit deems this post
+	// NSFW, but we have also disabled the display of NSFW content
+	// or if the instance is SFW-only.
+	if post.nsfw && crate::utils::should_be_nsfw_gated(&req, &req_url) {
+		return Ok(nsfw_landing(req, req_url).await.unwrap_or_default());
+	}
+
+	let query_body = match COMMENT_SEARCH_CAPTURE.captures(&url) {
+		Some(captures) => captures.get(1).unwrap().as_str().replace("%20", " ").replace('+', " "),
+		None => String::new(),
+	};
+
+	let query_string = format!("q={query_body}&type=comment");
+	let form = url::form_urlencoded::parse(query_string.as_bytes()).collect::<HashMap<_, _>>();
+	let query = form.get("q").unwrap().clone().to_string();
+
+	let comments = match query.as_str() {
+		"" => parse_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &req),
+		_ => query_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &query, &req),
+	};
+
+	// Use the Post and Comment structs to generate a website to show users
+	Ok(template(&PostTemplate {
+		comments,
+		post,
+		url_without_query: url.clone().trim_end_matches(&format!("?q={query}&type=comment")).to_string(),
+		sort,
+		prefs: Preferences::new(&req),
+		single_thread,
+		url: req_url,
+		comment_query: query,
+	}))
+}
+
+/// The thread's API response (`[post listing, comment listing]`), rebuilt
+/// from Reddit's web frontend. Used when Reddit only serves the thread's JSON
+/// to logged-in sessions: the post still comes from `/by_id`, the comments
+/// are scraped from the HTML Reddit serves logged-out visitors.
+async fn scraped_thread(id: String, comment_id: Option<String>, context: Option<String>, sort: String, quarantined: bool) -> Result<Value, String> {
+	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantined).await?;
+	let Some(sub) = post["data"]["children"][0]["data"]["subreddit"].as_str() else {
+		return Err("Post not found".to_string());
+	};
+
+	let comments = shreddit::comments(sub.to_string(), id, comment_id, sort, context).await?;
+	Ok(json!([post, comments]))
 }
 
 /// Feed for a post and its comments, built from the JSON API.

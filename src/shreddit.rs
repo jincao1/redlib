@@ -28,7 +28,7 @@ struct CrawlLimits {
 
 const CRAWL_LIMITS: CrawlLimits = CrawlLimits {
 	max_comments: 200,
-	max_expansions: 30,
+	max_expansions: 0,
 	concurrency: 10,
 };
 
@@ -65,7 +65,10 @@ fn comments_path(subreddit: &str, post_id: &str, comment_id: Option<&str>, sort:
 		path.push_str(&format!("/t1_{comment_id}"));
 	}
 	if !sort.is_empty() {
-		path.push_str(&format!("?{}", url::form_urlencoded::Serializer::new(String::new()).append_pair("sort", sort).finish()));
+		path.push_str(&format!(
+			"?{}",
+			url::form_urlencoded::Serializer::new(String::new()).append_pair("sort", &sort.to_uppercase()).finish()
+		));
 	}
 	path
 }
@@ -529,8 +532,8 @@ mod tests {
 	#[test]
 	fn test_comments_path() {
 		assert_eq!(comments_path("rust", "abc", None, ""), "/svc/shreddit/comments/r/rust/t3_abc");
-		assert_eq!(comments_path("rust", "abc", None, "new"), "/svc/shreddit/comments/r/rust/t3_abc?sort=new");
-		assert_eq!(comments_path("rust", "abc", Some("def"), "q&a"), "/svc/shreddit/comments/r/rust/t3_abc/t1_def?sort=q%26a");
+		assert_eq!(comments_path("rust", "abc", None, "new"), "/svc/shreddit/comments/r/rust/t3_abc?sort=NEW");
+		assert_eq!(comments_path("rust", "abc", Some("def"), "q&a"), "/svc/shreddit/comments/r/rust/t3_abc/t1_def?sort=Q%26A");
 	}
 
 	#[test]

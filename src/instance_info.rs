@@ -128,6 +128,7 @@ impl InstanceInfo {
 				["Pushshift frontend", &effective(&self.config.pushshift, crate::config::DEFAULT_PUSHSHIFT_FRONTEND)],
 				["RSS enabled", &effective(&self.config.enable_rss, "off")],
 				["RedGifs enabled", &effective(&self.config.enable_redgifs, "on")],
+				["Scrape fallback enabled", &effective(&self.config.enable_scrape_fallback, "on")],
 				["Full URL", &effective(&self.config.full_url, "none")],
 				["Remove default feeds", &effective(&self.config.default_remove_default_feeds, "off")],
 			])
@@ -173,6 +174,7 @@ impl InstanceInfo {
 					"SFW only: {}\n",
 					"RSS enabled: {}\n",
 					"RedGifs enabled: {}\n",
+					"Scrape fallback enabled: {}\n",
 					"Full URL: {}\n",
 					"Remove default feeds: {}\n",
 					"Pushshift frontend: {}\n",
@@ -207,6 +209,7 @@ impl InstanceInfo {
 				effective(&self.config.sfw_only, "off"),
 				effective(&self.config.enable_rss, "off"),
 				effective(&self.config.enable_redgifs, "on"),
+				effective(&self.config.enable_scrape_fallback, "on"),
 				effective(&self.config.full_url, "none"),
 				effective(&self.config.default_remove_default_feeds, "off"),
 				effective(&self.config.pushshift, crate::config::DEFAULT_PUSHSHIFT_FRONTEND),

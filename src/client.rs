@@ -705,11 +705,18 @@ fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String
 	format!("Failed to parse page JSON data: {parse_error} | {path}")
 }
 
+const BLOCKED_ERROR_PREFIX: &str = "Reddit blocked this request (403 Forbidden)";
+
 fn blocked_error(path: &str) -> String {
 	format!(
-		"Reddit blocked this request (403 Forbidden): Reddit only serves this page to logged-in sessions. \
+		"{BLOCKED_ERROR_PREFIX}: Reddit only serves this page to logged-in sessions. \
 		 If you host this instance, set or renew {REDDIT_COOKIE_SETTING}. | {path}"
 	)
+}
+
+/// Whether `json()` failed because Reddit only serves the page to logged-in sessions.
+pub fn is_blocked_error(msg: &str) -> bool {
+	msg.starts_with(BLOCKED_ERROR_PREFIX)
 }
 
 async fn self_check(sub: &str) -> Result<(), String> {
