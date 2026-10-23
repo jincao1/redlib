@@ -470,11 +470,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 					let has_remaining = body.has_remaining();
 
 					if !has_remaining {
+						// Reddit sends an expired session to its login page,
+						// which has an empty body.
 						if from_web_session {
-							// Reddit sends an expired session to its login page,
-							// which has an empty body. Report that instead of
-							// blaming the rate limit.
-							return Err(non_json_response_error(status.as_u16(), "", &path, true));
+							return Err(blocked_error(&path));
 						}
 
 						// Rate limited, so spawn a force_refresh_token()
@@ -535,7 +534,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
-							Err(non_json_response_error(status.as_u16(), &e.to_string(), &path, session.is_some()))
+							if from_web_session {
+								return Err(blocked_error(&path));
+							}
+							Err(non_json_response_error(status.as_u16(), &e.to_string(), &path))
 						}
 					}
 				}
@@ -596,29 +598,13 @@ fn encode_thread_route(path: &str) -> String {
 /// looking for a bug in Redlib, so name the real cause and the setting that
 /// fixes it instead.
 ///
+/// The text is the same whether or not a session is configured, so visitors
+/// can't tell if the instance has one.
+///
 /// See <https://github.com/redlib-org/redlib/issues/591>.
-fn non_json_response_error(status: u16, parse_error: &str, path: &str, session_configured: bool) -> String {
+fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String {
 	if status == 403 {
-		return if session_configured {
-			format!(
-				"Reddit blocked this request (403 Forbidden), even with {REDDIT_COOKIE_SETTING}. \
-				 The cookie has probably expired: copy a fresh one from a logged-in browser. | {path}"
-			)
-		} else {
-			format!(
-				"Reddit blocked this request (403 Forbidden): Reddit no longer serves this page to logged-out clients. \
-				 Set {REDDIT_COOKIE_SETTING} to the Cookie header of a logged-in reddit.com session. | {path}"
-			)
-		};
-	}
-
-	// The web host answers a missing or expired session with a redirect to its
-	// login page.
-	if (300..=399).contains(&status) {
-		return format!(
-			"Reddit redirected this request instead of serving it ({status}): \
-			 {REDDIT_COOKIE_SETTING} is missing or expired. | {path}"
-		);
+		return blocked_error(path);
 	}
 
 	if status == 429 {
@@ -629,14 +615,14 @@ fn non_json_response_error(status: u16, parse_error: &str, path: &str, session_c
 		return "Reddit is having issues, check if there's an outage".to_string();
 	}
 
-	if session_configured {
-		return format!(
-			"Reddit did not return JSON for this page (status {status}): \
-			 {REDDIT_COOKIE_SETTING} may have expired. | {path}"
-		);
-	}
-
 	format!("Failed to parse page JSON data: {parse_error} | {path}")
+}
+
+fn blocked_error(path: &str) -> String {
+	format!(
+		"Reddit blocked this request (403 Forbidden): Reddit only serves this page to logged-in sessions. \
+		 If you host this instance, set or renew {REDDIT_COOKIE_SETTING}. | {path}"
+	)
 }
 
 async fn self_check(sub: &str) -> Result<(), String> {
@@ -749,40 +735,20 @@ mod tests {
 	fn test_blocked_response_reports_the_block_not_a_json_error() {
 		// Reddit's block page is HTML, so serde fails on it. The message the
 		// user sees must not blame JSON parsing.
-		let msg = non_json_response_error(
-			403,
-			"expected value at line 1 column 1",
-			"/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1",
-			false,
-		);
+		let msg = non_json_response_error(403, "expected value at line 1 column 1", "/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1");
 		assert!(msg.contains("403"), "{msg}");
 		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
 
 		// It must name the setting that makes the page work again.
 		assert!(msg.contains("REDLIB_REDDIT_COOKIE"), "{msg}");
 		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
-	}
-
-	#[test]
-	fn test_blocked_response_with_a_session_blames_the_session() {
-		let msg = non_json_response_error(403, "expected value at line 1 column 1", "/r/x/comments/1/.json", true);
-		assert!(msg.contains("403"), "{msg}");
-		assert!(msg.contains("expired"), "{msg}");
-		// The user already set the setting, so it must not be advertised as the fix.
-		assert!(!msg.contains("Set REDLIB_REDDIT_COOKIE"), "{msg}");
-	}
-
-	#[test]
-	fn test_login_redirect_is_reported_as_an_expired_session() {
-		let msg = non_json_response_error(302, "", "/r/x/comments/1/.json", true);
-		assert!(msg.contains("302"), "{msg}");
-		assert!(msg.contains("REDLIB_REDDIT_COOKIE"), "{msg}");
+		assert_eq!(msg, blocked_error("/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1"));
 	}
 
 	#[test]
 	fn test_rate_limited_html_response_says_so() {
 		assert_eq!(
-			non_json_response_error(429, "expected value at line 1 column 1", "/r/x/hot.json", false),
+			non_json_response_error(429, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Reddit is rate limiting this instance (429 Too Many Requests). Try again in a minute. | /r/x/hot.json"
 		);
 	}
@@ -833,7 +799,7 @@ mod tests {
 	#[test]
 	fn test_non_json_server_error_keeps_the_outage_message() {
 		assert_eq!(
-			non_json_response_error(502, "expected value at line 1 column 1", "/r/x/hot.json", false),
+			non_json_response_error(502, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Reddit is having issues, check if there's an outage"
 		);
 	}
@@ -841,7 +807,7 @@ mod tests {
 	#[test]
 	fn test_other_non_json_responses_still_report_a_parse_error() {
 		assert_eq!(
-			non_json_response_error(200, "expected value at line 1 column 1", "/r/x/hot.json", false),
+			non_json_response_error(200, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Failed to parse page JSON data: expected value at line 1 column 1 | /r/x/hot.json"
 		);
 	}

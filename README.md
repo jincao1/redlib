@@ -443,7 +443,7 @@ Reddit no longer serves its `.json` endpoints to logged-out clients: it answers 
 
 Copy the cookie from Chrome or Firefox: the instance presents itself as one of those browsers, and Reddit is more likely to refuse a session that comes with a different browser fingerprint. Only requests Reddit blocks are retried with the session, so the account is not used for the instance's regular listing traffic.
 
-The cookie is a credential. It grants full access to the account, is never shown on `/info`, and must not end up in screenshots, shell history or container images. When it expires (Reddit signs the session out, the password changes, or the cookie rotates), post pages report `Reddit blocked this request (403 Forbidden), even with REDLIB_REDDIT_COOKIE`; restart Redlib with a fresh cookie.
+The cookie is a credential. It grants full access to the account, is never shown on `/info`, and must not end up in screenshots, shell history or container images. When it expires (Reddit signs the session out, the password changes, or the cookie rotates), post pages show the same block message as an instance without a session, so visitors can't tell whether one is set; restart Redlib with a fresh cookie. Also note that clicking "Log out" on reddit.com ends the session on Reddit's side.
 
 ## Default user settings
 
