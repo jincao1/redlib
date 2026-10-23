@@ -9,16 +9,34 @@ document.addEventListener("click", async (event) => {
     link.textContent = "Loading…";
 
     try {
-        // The link opens the parent comment's thread; its replies replace the
-        // link, minus those already on the page.
         const response = await fetch(link.href);
         if (!response.ok) throw new Error(response.status);
         const page = new DOMParser().parseFromString(await response.text(), "text/html");
-        const parent = page.getElementById(link.closest(".comment").id);
-        const replies = [...parent.querySelector(":scope > details > .replies").children];
-        const fresh = replies.filter((reply) => (reply.id ? !document.getElementById(reply.id) : reply.getAttribute("href") !== link.getAttribute("href")));
-        if (!fresh.length) throw new Error("no new replies");
-        link.replaceWith(...fresh);
+
+        // The link opens either the parent comment's thread, whose replies we
+        // want, or a page with just the missing batch of comments.
+        const parent = link.closest(".comment");
+        const fetchedParent = parent && page.getElementById(parent.id);
+        const loaded = fetchedParent
+            ? [...fetchedParent.querySelector(":scope > details > .replies").children]
+            : [...page.querySelectorAll(".thread")].flatMap((thread) => [...thread.children]).filter((el) => !el.matches(".thread_nav"));
+        const fresh = loaded.filter((el) => (el.id ? !document.getElementById(el.id) : el.getAttribute("href") !== link.getAttribute("href")));
+        if (!fresh.length) throw new Error("nothing new");
+
+        const thread = link.parentElement;
+        if (thread.matches(".thread")) {
+            // More top-level comments: each gets a thread of its own.
+            thread.replaceWith(
+                ...fresh.map((el) => {
+                    const wrapper = document.createElement("div");
+                    wrapper.className = "thread";
+                    wrapper.append(el);
+                    return wrapper;
+                }),
+            );
+        } else {
+            link.replaceWith(...fresh);
+        }
     } catch {
         link.textContent = label;
         delete link.dataset.loading;
