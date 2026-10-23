@@ -77,6 +77,12 @@
     "REDLIB_ENABLE_REDGIFS": {
       "required": false
     },
+    "REDLIB_ENABLE_SCRAPE_FALLBACK": {
+      "required": false
+    },
+    "REDLIB_SCRAPE_COMMENT_PREFETCH": {
+      "required": false
+    },
     "REDLIB_FULL_URL": {
       "required": false
     },

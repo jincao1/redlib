@@ -62,6 +62,7 @@ From upstream pull requests that are not merged upstream:
 - **Better RSS media**: images, galleries and videos render in RSS readers, and content is HTML-escaped ([redlib-org#572](https://github.com/redlib-org/redlib/pull/572)).
 - **Catppuccin themes**: Latte, Frappé, Macchiato and Mocha ([redlib-org#538](https://github.com/redlib-org/redlib/pull/538)).
 - **Download all images of a gallery** from the post page as individual files ([redlib-org#546](https://github.com/redlib-org/redlib/pull/546)). Needs JavaScript.
+- **Post pages without a Reddit session**: when Reddit blocks a thread and no session cookie gets through, the post comes from `/by_id` and the comments are scraped from the HTML Reddit serves logged-out visitors ([redlib-org#599](https://github.com/redlib-org/redlib/pull/599), used only as a fallback here). Turn it off with `REDLIB_ENABLE_SCRAPE_FALLBACK=off`. See [Scrape fallback](README.md#scrape-fallback).
 
 From [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib):
 
@@ -82,6 +83,7 @@ Own features:
 
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
+- **Scraped comments load on demand**: a scraped post page shows Reddit's first batch of comments. "More comments" and "More replies" open a page with the next batch, one request to Reddit per click, with a link back to all comments. `REDLIB_SCRAPE_COMMENT_PREFETCH` loads more up front.
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
@@ -95,6 +97,8 @@ Own features:
 | Variable | Default | Description |
 |---|---|---|
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
+| `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Scrape post pages from Reddit's HTML when Reddit blocks the thread JSON. `off` shows the block error instead. |
+| `REDLIB_SCRAPE_COMMENT_PREFETCH` | `0` | Extra requests a scraped post page makes to load more comments up front. `0` loads them only when asked. |
 | `REDLIB_REDDIT_COOKIE` | (empty) | `Cookie` header of a logged-in reddit.com session, several separated by `\|`. Needed for post pages. **Secret.** |
 | `REDLIB_SOURCE_URL` | `https://github.com/redlib-org/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
 

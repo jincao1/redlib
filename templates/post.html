@@ -88,6 +88,9 @@
         </div>
 
 		<!-- COMMENTS -->
+        {% if more_page %}
+            <p class="thread_nav"><a href="{{ post.permalink }}">View all comments</a></p>
+        {% endif %}
         {% for c in comments -%}
             <div class="thread">
                 {% if single_thread %}
