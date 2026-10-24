@@ -1,6 +1,7 @@
 services:
   redlib:
-    image: ghcr.io/nachtalb/redlib:latest
+    image: ghcr.io/nachtalb/redlib:latest-obscura
+    # image: ghcr.io/nachtalb/redlib:latest # not on amd64: use latest (no Obscura)
     restart: always
     container_name: "redlib"
     ports:

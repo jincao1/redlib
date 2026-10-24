@@ -15,7 +15,8 @@ This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) 
 All platforms are cross-compiled natively on the build host and published under one multi-arch tag, so `docker pull` picks the right one.
 
 ```bash
-docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest-obscura
+# docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 ```
 
 No release binaries are published. Build from source with `cargo build --release`.
