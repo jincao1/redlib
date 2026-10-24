@@ -28,6 +28,8 @@
     --popup-border: 1px solid var(--popup-red);
 
     --footer-height: 30px;
+
+    --comment-v-space: 2px;
 }
 
 @font-face {
@@ -1443,7 +1445,7 @@ a.search_subreddit:hover {
 .comment_left {
     text-align: center;
     min-width: 50px;
-    padding: 5px 0;
+    padding: var(--comment-v-space) 0;
     align-items: center;
 }
 
@@ -1479,7 +1481,7 @@ a.search_subreddit:hover {
 
 .comment_right {
     word-wrap: anywhere;
-    padding: 5px 0 5px 2px;
+    padding: var(--comment-v-space) 0 var(--comment-v-space) 2px;
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
@@ -1528,8 +1530,8 @@ a.search_subreddit:hover {
 .comment_body {
     opacity: 0.9;
     font-weight: normal;
-    padding: 5px 5px;
-    margin: 5px 0;
+    padding: var(--comment-v-space) 5px;
+    margin: var(--comment-v-space) 0;
     overflow: auto;
 }
 
@@ -1539,7 +1541,7 @@ a.search_subreddit:hover {
 }
 
 .comment_body > p:not(:first-child) {
-    margin-top: 20px;
+    margin-top: var(--comment-v-space);
 }
 
 .comment_body a {
@@ -1551,8 +1553,8 @@ a.search_subreddit:hover {
     opacity: 0.4;
     font-weight: normal;
     font-style: italic;
-    padding: 5px 5px;
-    margin: 5px 0;
+    padding: var(--comment-v-space) 5px;
+    margin: var(--comment-v-space) 0;
     overflow: auto;
 }
 
@@ -1567,7 +1569,7 @@ a.search_subreddit:hover {
 
 .replies > .comment {
     margin-left: -20px;
-    padding: 5px;
+    padding: 0 5px;
 }
 
 .created {
@@ -2045,24 +2047,24 @@ body.update_footer_shown {
     }
 
     .comment_right {
-        padding: 2px 0 2px 0px;
+        padding: var(--comment-v-space) 0;
     }
 
     .comment_body {
         opacity: 0.9;
         font-weight: normal;
-        padding: 1px 1px;
-        margin: 5px 0;
+        padding: var(--comment-v-space) 1px;
+        margin: var(--comment-v-space) 0;
         overflow: auto;
     }
 
     .comment_body > p:not(:first-child) {
-        margin-top: 5px;
+        margin-top: var(--comment-v-space);
     }
 
     .replies > .comment {
         margin-left: -12px;
-        padding: 0;
+        padding-block: 0;
     }
 
     .deeper_replies {
@@ -2223,12 +2225,12 @@ body.update_footer_shown {
 
     .replies > .comment {
         margin-left: -12px;
-        padding: 1px 0;
+        padding-block: 0;
     }
 
     .comment_left {
         min-width: auto;
-        padding: 5px 0px;
+        padding: var(--comment-v-space) 0;
         align-items: initial;
         margin-top: -2px;
     }
@@ -2247,7 +2249,7 @@ body.update_footer_shown {
 
     /* .thread { margin-left: -5px; } */
     .comment_right {
-        padding: 2px 0 2px 0px;
+        padding: var(--comment-v-space) 0;
     }
     /* .comment_author {
         margin-left: 12px;
