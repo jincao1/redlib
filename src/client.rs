@@ -213,7 +213,7 @@ pub async fn canonical_path(path: String, tries: i8) -> Result<Option<String>, S
 				// So we need to strip the .json suffix from the original path, and
 				// also remove all Reddit domain parts with format_url.
 				// Otherwise, it will literally redirect to Reddit.com.
-				let uri = format_url(stripped_uri);
+				let uri = comments_logical_path(&format_url(stripped_uri));
 
 				// Decrement tries and try again
 				canonical_path(uri, tries - 1).await
@@ -465,6 +465,23 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 		}
 	}
 	.boxed()
+}
+
+/// Remove the comments-route separator encoding if Reddit reflects our
+/// transport-only rewrite in a redirect.
+fn comments_logical_path(path: &str) -> String {
+	let path = path.replace("/comments%2F", "/comments/").replace("/comments%2f", "/comments/");
+
+	let Some(scoped) = path.strip_prefix("/r/") else {
+		return path;
+	};
+	let Some((subreddit, tail)) = scoped.split_once("%2Fcomments/").or_else(|| scoped.split_once("%2fcomments/")) else {
+		return path;
+	};
+	if subreddit.is_empty() || subreddit.contains('/') {
+		return path;
+	}
+	format!("/r/{subreddit}/comments/{tail}")
 }
 
 /// Make a request to a Reddit API and parse the JSON response
@@ -947,6 +964,18 @@ mod tests {
 			non_json_response_error(200, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Failed to parse page JSON data: expected value at line 1 column 1 | /r/x/hot.json"
 		);
+	}
+
+	#[test]
+	fn test_comments_logical_path_removes_transport_encoding() {
+		for (path, expected) in [
+			("/r/rust%2Fcomments/18t5968/title/kfbqlbc/", "/r/rust/comments/18t5968/title/kfbqlbc/"),
+			("/r/rust%2fcomments/18t5968/title/kfbqlbc/", "/r/rust/comments/18t5968/title/kfbqlbc/"),
+			("/comments%2F18t5968/title/", "/comments/18t5968/title/"),
+			("/r/rust%2Fwiki/page", "/r/rust%2Fwiki/page"),
+		] {
+			assert_eq!(comments_logical_path(path), expected);
+		}
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
