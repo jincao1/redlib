@@ -1,40 +1,28 @@
 // @license http://www.gnu.org/licenses/agpl-3.0.html AGPL-3.0
+// Shows a red bar above the footer when this instance is behind its source repository.
 async function checkInstanceUpdateStatus() {
     try {
         const response = await fetch("/commits.atom");
         const text = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, "application/xml");
+        const xmlDoc = new DOMParser().parseFromString(text, "application/xml");
         const entries = xmlDoc.getElementsByTagName("entry");
-        const localCommit = document.getElementById("git_commit").dataset.value;
+        if (entries.length === 0) return;
 
-        let statusMessage = "";
+        const commitHashes = Array.from(entries).map((entry) => entry.getElementsByTagName("id")[0].textContent.split("/").pop());
+        const commitIndex = commitHashes.indexOf(document.getElementById("git_commit").dataset.value);
+        if (commitIndex === 0) return;
 
-        if (entries.length > 0) {
-            const commitHashes = Array.from(entries).map((entry) => {
-                const id = entry.getElementsByTagName("id")[0].textContent;
-                return id.split("/").pop();
-            });
-
-            const commitIndex = commitHashes.indexOf(localCommit);
-
-            if (commitIndex === 0) {
-                statusMessage = "✅ Instance is up to date.";
-            } else if (commitIndex > 0) {
-                statusMessage = `⚠️ This instance is not up to date and is ${commitIndex} commits old. Test and confirm on an up-to-date instance before reporting.`;
-                document.getElementById("error-446").remove();
-            } else {
-                statusMessage = `⚠️ This instance is not up to date and is at least ${commitHashes.length} commits old. Test and confirm on an up-to-date instance before reporting.`;
-                document.getElementById("error-446").remove();
-            }
-        } else {
-            statusMessage = "⚠️ Unable to fetch commit information.";
-        }
-
-        document.getElementById("update-status").innerText = statusMessage;
+        const behind = commitIndex > 0 ? `${commitIndex}` : `at least ${commitHashes.length}`;
+        const bar = document.getElementById("update-status");
+        bar.innerText = `⚠️ This instance is ${behind} commits behind. Confirm on an up-to-date instance before reporting.`;
+        // Second footer row, directly above the normal one.
+        const footer = document.querySelector("body > footer");
+        footer?.prepend(bar);
+        footer?.classList.add("has_update");
+        bar.hidden = false;
+        document.body.classList.add("update_footer_shown");
     } catch (error) {
         console.error("Error fetching commits:", error);
-        document.getElementById("update-status").innerText = "⚠️ Error checking update status: " + error;
     }
 }
 
@@ -47,11 +35,11 @@ async function checkOtherInstances() {
         const randomInstance = instances[Math.floor(Math.random() * instances.length)];
         const instanceUrl = randomInstance.url ?? randomInstance.onion;
         // Set the href of the <a> tag to the instance URL with path included
-        document.getElementById("random-instance").href = instanceUrl + window.location.pathname;
-        document.getElementById("random-instance").innerText = "Visit Random Instance";
+        const link = document.getElementById("random-instance");
+        link.href = instanceUrl + window.location.pathname;
+        link.innerText = "Try another instance";
     } catch (error) {
         console.error("Error fetching instances:", error);
-        document.getElementById("update-status").innerText = "⚠️ Error checking other instances: " + error;
     }
 }
 

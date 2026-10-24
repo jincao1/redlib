@@ -562,6 +562,11 @@ impl Awards {
 #[template(path = "error.html")]
 pub struct ErrorTemplate {
 	pub msg: String,
+	pub detail: String,
+	pub reddit_url: String,
+	/// Show instance hosts how to get past Reddit's block.
+	pub blocked: bool,
+	pub obscura: bool,
 	pub prefs: Preferences,
 	pub url: String,
 }
@@ -1503,8 +1508,19 @@ pub fn redirect(path: &str) -> Response<Body> {
 pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, String> {
 	error!("Error page rendered: {}", msg.split('|').next().unwrap_or_default());
 	let url = req.uri().to_string();
+	// "Title: detail | /reddit/path"
+	let (text, path) = msg.split_once(" | ").unwrap_or((msg, ""));
+	let (title, detail) = text.split_once(": ").unwrap_or((text, ""));
 	let body = ErrorTemplate {
-		msg: msg.to_string(),
+		msg: title.to_string(),
+		detail: detail.to_string(),
+		reddit_url: if path.starts_with('/') {
+			format!("https://www.reddit.com{path}")
+		} else {
+			path.to_string()
+		},
+		blocked: crate::client::is_blocked_error(msg),
+		obscura: cfg!(feature = "obscura"),
 		prefs: Preferences::new(&req),
 		url,
 	}

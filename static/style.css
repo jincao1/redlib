@@ -1920,11 +1920,50 @@ th {
 #error {
     text-align: center;
 }
+#error {
+    max-width: 700px;
+    margin: 40px auto;
+}
 #error h1 {
     margin-bottom: 10px;
 }
-#error h3 {
+#error .error_detail {
     opacity: 0.85;
+}
+#error .error_url {
+    margin: 20px 0;
+    padding: 10px;
+    border-radius: 5px;
+    background: var(--foreground);
+    font-size: 13px;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+#error .error_links {
+    opacity: 0.85;
+}
+#error #random-instance:not(:empty)::before {
+    content: " · ";
+    color: var(--text);
+}
+/* Red second footer row when the instance is behind its source repository */
+body > footer.has_update {
+    flex-direction: column;
+}
+.update_footer {
+    width: 100%;
+    padding: 0 10px;
+    box-sizing: border-box;
+    background: var(--accent);
+    color: white;
+    text-align: center;
+}
+.update_footer[hidden] {
+    display: none;
+}
+body.update_footer_shown {
+    padding-bottom: calc(2 * var(--footer-height));
 }
 #error a {
     color: var(--accent);
