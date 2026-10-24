@@ -1,5 +1,5 @@
 use std::process::{Command, ExitStatus, Output};
-
+use std::time::SystemTime;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
 
@@ -8,7 +8,11 @@ use std::os::windows::process::ExitStatusExt;
 
 fn main() {
 	println!("cargo:rerun-if-changed=src/");
+	println!("cargo:rerun-if-changed=static/");
 	println!("cargo:rerun-if-env-changed=GIT_HASH");
+	let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("get millis error");
+	let build_time = now.as_millis();
+	println!("cargo:rustc-env=BUILD_TIME={build_time}");
 	if let Ok(git_hash) = std::env::var("GIT_HASH") {
 		println!("cargo:rustc-env=GIT_HASH={git_hash}");
 		return;

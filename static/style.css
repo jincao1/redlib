@@ -1406,7 +1406,7 @@ a.search_subreddit:hover {
 /* Comment */
 
 .comment {
-    margin: 10px 0;
+    margin: 0;
     border-radius: 5px;
     display: flex;
 }
@@ -1473,13 +1473,13 @@ a.search_subreddit:hover {
     min-width: 40px;
     border-radius: 5px;
     padding: 10px 0;
-    font-size: 14px;
+    font-size: small;
     font-weight: 600;
 }
 
 .comment_right {
     word-wrap: anywhere;
-    padding: 10px 0 10px 5px;
+    padding: 5px 0 5px 2px;
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
@@ -2020,11 +2020,65 @@ body.update_footer_shown {
 /* Mobile */
 
 @media screen and (max-width: 800px) {
+
+    body.fixed_navbar { padding-top: 60px }
+
+    /* #column_one:has(#sort_options:not([hidden])) {
+        margin-top: -50px;
+    } */
+
+    body {
+        font-size: small;
+    }
+
+    .comment {
+        margin: 0;
+    }
+
+    .comment_score {
+        min-width: 30px;
+        padding: 5px 0;
+        font-size: small;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .comment_right {
+        padding: 2px 0 2px 0px;
+    }
+
+    .comment_body {
+        opacity: 0.9;
+        font-weight: normal;
+        padding: 1px 1px;
+        margin: 5px 0;
+        overflow: auto;
+    }
+
+    .comment_body > p:not(:first-child) {
+        margin-top: 5px;
+    }
+
+    .replies > .comment {
+        margin-left: -12px;
+        padding: 0;
+    }
+
+    .deeper_replies {
+        display: block;
+        padding-bottom: 2px;
+    }
+
     main {
         flex-direction: column-reverse;
         padding: 10px;
         margin: 0 0 10px 0;
         max-width: 100%;
+    }
+
+    .post_title {
+        font-size: 15px;
     }
 
     nav {
@@ -2082,11 +2136,11 @@ body.update_footer_shown {
             margin-top: 48px;
         }
         div.post.highlighted {
-            margin-top: 49px;
+            margin-top: 10px;
         }
         main:not(:has(div + aside)) {
             #sort {
-                margin-top: 49px;
+                margin-top: 1px;
             }
         }
         #column_one:has(div.post.highlighted + #commentQueryForms) {
@@ -2103,8 +2157,18 @@ body.update_footer_shown {
     #links {
         margin-bottom: 5px;
     }
+
+    #search_icon {
+        margin: 0 5px 0 10px;
+    }
+
     #searchbox {
         width: calc(100vw - 20px);
+        margin-bottom: 10px;
+        display: none;
+    }
+    
+    #sort {
         margin-bottom: 10px;
     }
 }
@@ -2159,14 +2223,14 @@ body.update_footer_shown {
 
     .replies > .comment {
         margin-left: -12px;
-        padding: 5px 0;
+        padding: 1px 0;
     }
 
     .comment_left {
         min-width: auto;
         padding: 5px 0px;
         align-items: initial;
-        margin-top: -5px;
+        margin-top: -2px;
     }
 
     .comment_right[open] > .comment_data > .comment_collapse {
@@ -2183,11 +2247,11 @@ body.update_footer_shown {
 
     /* .thread { margin-left: -5px; } */
     .comment_right {
-        padding: 5px 0 10px 2px;
+        padding: 2px 0 2px 0px;
     }
-    .comment_author {
+    /* .comment_author {
         margin-left: 12px;
-    }
+    } */
     .comment_data {
         margin-left: 8px;
         padding-left: 8px;
@@ -2196,7 +2260,7 @@ body.update_footer_shown {
     .user-comment .comment_data {
         flex-direction: column;
         flex-wrap: wrap;
-        row-gap: 5px;
+        row-gap: 2px;
     }
 
     .comment_data::marker {
@@ -2221,10 +2285,12 @@ body.update_footer_shown {
     .comment_score {
         min-width: 34px;
         height: 20px;
-        font-size: 12px;
-        padding: 7px 0px;
+        font-size: small;
+        padding: 1px 0px;
         margin-right: -5px;
         align-content: center;
+        justify-content: center;
+        display: flex;
     }
 
     #post_links > li {
