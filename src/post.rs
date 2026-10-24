@@ -2,6 +2,7 @@
 use crate::body::Body;
 use crate::client::{is_blocked_error, json};
 use crate::config::get_setting;
+use crate::reddit_health::{self, Outcome};
 use crate::server::RequestExt;
 use crate::shreddit::{self, More};
 use crate::subreddit::{can_access_quarantine, quarantine};
@@ -82,7 +83,10 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);
 	let response = match json(path, quarantined).await {
-		Ok(response) => response,
+		Ok(response) => {
+			reddit_health::record(Outcome::Ok);
+			response
+		}
 		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => {
 			match scraped_thread(
 				req.param("id").unwrap_or_default(),
@@ -94,15 +98,26 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 			)
 			.await
 			{
-				Ok(thread) => thread,
-				Err(msg) => return error(req, &msg).await,
+				Ok(thread) => {
+					reddit_health::record(Outcome::Scraped);
+					thread
+				}
+				Err(msg) => {
+					reddit_health::record(Outcome::Blocked);
+					return error(req, &msg).await;
+				}
 			}
 		}
 		Err(msg) if msg == "quarantined" || msg == "gated" => {
 			let sub = req.param("sub").unwrap_or_default();
 			return Ok(quarantine(&req, sub, &msg));
 		}
-		Err(msg) => return error(req, &msg).await,
+		Err(msg) => {
+			if is_blocked_error(&msg) {
+				reddit_health::record(Outcome::Blocked);
+			}
+			return error(req, &msg).await;
+		}
 	};
 
 	// Parse the JSON into Post and Comment structs

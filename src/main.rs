@@ -90,6 +90,19 @@ async fn resource(body: &str, content_type: &str, cache: bool) -> Result<Respons
 	Ok(res)
 }
 
+/// 503 when most recent post requests were blocked by Reddit, for status checks.
+async fn reddit_health() -> Result<Response<Body>, String> {
+	let (healthy, summary) = redlib::reddit_health::status();
+	Ok(
+		Response::builder()
+			.status(if healthy { 200 } else { 503 })
+			.header("content-type", "text/plain")
+			.header("Cache-Control", "no-store")
+			.body(summary.into())
+			.unwrap_or_default(),
+	)
+}
+
 async fn style() -> Result<Response<Body>, String> {
 	let mut res = include_str!("../static/style.css").to_string();
 	for file in ThemeAssets::iter() {
@@ -220,6 +233,7 @@ async fn main() {
 	}
 
 	app.at("/healthz").get(|_| resource("ok", "text/plain", false).boxed());
+	app.at("/healthz/reddit").get(|_| reddit_health().boxed());
 
 	// Read static files
 	app.at("/style.css").get(|_| style().boxed());
