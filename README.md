@@ -205,15 +205,15 @@ docker logs -f redlib
 Deploy Redlib:
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 8080:8080 quay.io/redlib/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
 ```
 
 Deploy using a different port on the host (in this case, port 80):
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 80:8080 quay.io/redlib/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 80:8080 ghcr.io/nachtalb/redlib:latest
 ```
 
 If you're using a reverse proxy in front of Redlib, prefix the port numbers with `127.0.0.1` so that Redlib only listens on the host port **locally**. For example, if the host port for Redlib is `8080`, specify `127.0.0.1:8080:8080`.
@@ -395,7 +395,7 @@ REDLIB_DEFAULT_USE_HLS = "on"
 > If using the Docker CLI, add ` --env-file .env` to the command that runs Redlib. For example:
 >
 > ```bash
-> docker run -d --name redlib -p 8080:8080 --env-file .env quay.io/redlib/redlib:latest
+> docker run -d --name redlib -p 8080:8080 --env-file .env ghcr.io/nachtalb/redlib:latest
 > ```
 >
 > If using Docker Compose, no changes are needed as the `.env` file is already referenced in `compose.yaml` via the `env_file: .env` line.
