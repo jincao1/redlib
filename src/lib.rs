@@ -8,6 +8,7 @@ pub mod oauth_resources;
 #[cfg(feature = "obscura")]
 pub mod obscura_client;
 pub mod post;
+pub mod reddit_health;
 pub mod redgifs;
 pub mod search;
 pub mod server;
