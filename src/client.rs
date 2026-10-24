@@ -213,7 +213,7 @@ pub async fn canonical_path(path: String, tries: i8) -> Result<Option<String>, S
 				// So we need to strip the .json suffix from the original path, and
 				// also remove all Reddit domain parts with format_url.
 				// Otherwise, it will literally redirect to Reddit.com.
-				let uri = comments_logical_path(&format_url(stripped_uri));
+				let uri = format_url(stripped_uri);
 
 				// Decrement tries and try again
 				canonical_path(uri, tries - 1).await
@@ -467,23 +467,6 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 	.boxed()
 }
 
-/// Remove the comments-route separator encoding if Reddit reflects our
-/// transport-only rewrite in a redirect.
-fn comments_logical_path(path: &str) -> String {
-	let path = path.replace("/comments%2F", "/comments/").replace("/comments%2f", "/comments/");
-
-	let Some(scoped) = path.strip_prefix("/r/") else {
-		return path;
-	};
-	let Some((subreddit, tail)) = scoped.split_once("%2Fcomments/").or_else(|| scoped.split_once("%2fcomments/")) else {
-		return path;
-	};
-	if subreddit.is_empty() || subreddit.contains('/') {
-		return path;
-	}
-	format!("/r/{subreddit}/comments/{tail}")
-}
-
 /// Make a request to a Reddit API and parse the JSON response
 #[cached(max_size = 100, ttl_secs = 30)]
 pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
@@ -513,18 +496,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	burn_rate_limit_unit();
 
 	// A logged-in web session is used when Reddit blocks an endpoint for
-	// logged-out clients (see the 403 handling below). It also makes the
-	// `%2f` workaround in encode_thread_route() unnecessary, because the
-	// block it used to dodge is gone: Reddit now rejects the request for who
-	// is asking, not for which path it is.
+	// logged-out clients (see the 403 handling below).
 	let sessions = session_cookies();
 
-	// Fetch the url. Thread routes need the slash between the subreddit and
-	// `comments` encoded; see encode_thread_route(). With a session there is
-	// nothing to dodge, so the plain path is better.
-	let first_path = if sessions.is_empty() { encode_thread_route(&path) } else { path.clone() };
-
-	match reddit_get(first_path, quarantine).await {
+	match reddit_get(path.clone(), quarantine).await {
 		Ok(response) => {
 			let mut response = response;
 			let mut from_web_session = false;
@@ -678,48 +653,6 @@ async fn check_json(json: Value, path: &str) -> Result<Value, String> {
 	}
 }
 
-/// Percent-encodes the slash that joins the subreddit to `comments` in a
-/// thread route.
-///
-/// Reddit's edge matches the literal path `/r/<subreddit>/comments/...` and
-/// answers it with an HTML "You've been blocked by network security" page when
-/// the request carries an anonymous or app-only OAuth token - which is every
-/// token Redlib can mint. The same request with just that one slash encoded
-/// (`/r/<subreddit>%2fcomments/...`) is not matched and returns the usual JSON.
-///
-/// `/r/rust/comments/18t5968/foo/.json?raw_json=1`
-///   -> `/r/rust%2fcomments/18t5968/foo/.json?raw_json=1`
-///
-/// Anything that is not a thread route is returned unchanged. This works around
-/// a Reddit-side block and should be removed if Reddit starts normalising the
-/// path. See <https://github.com/redlib-org/redlib/issues/591>.
-fn encode_thread_route(path: &str) -> String {
-	// Split the query string off so that only the path itself is rewritten.
-	let (path_part, query_part) = match path.split_once('?') {
-		Some((path_part, query_part)) => (path_part, Some(query_part)),
-		None => (path, None),
-	};
-
-	let mut encoded_path = path_part.to_string();
-
-	if let Some(rest) = path_part.strip_prefix("/r/") {
-		if let Some(index) = rest.find("/comments") {
-			let tail = &rest[index + "/comments".len()..];
-
-			// `/comments/`, `/comments.json` or a path ending in `/comments` is
-			// the route; `/commentsXYZ` is not.
-			if tail.is_empty() || tail.starts_with('/') || tail.starts_with('.') {
-				encoded_path = format!("/r/{}%2fcomments{tail}", &rest[..index]);
-			}
-		}
-	}
-
-	match query_part {
-		Some(query_part) => format!("{encoded_path}?{query_part}"),
-		None => encoded_path,
-	}
-}
-
 /// Builds the user-facing error for a response that Reddit did not send as JSON.
 ///
 /// Reddit answers logged-out clients - for every `.json` endpoint, not just the
@@ -839,41 +772,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_thread_route_gets_its_slash_encoded() {
-		// Reddit blocks the literal `/r/<sub>/comments/...` path for app-only
-		// OAuth tokens, and serves the same JSON when that one slash is encoded.
-		assert_eq!(
-			encode_thread_route("/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1"),
-			"/r/politics%2fcomments/1x9xx9e/.json?&sort=confidence&raw_json=1"
-		);
-		assert_eq!(
-			encode_thread_route("/r/rust/comments/18t5968/why_use_tuple_struct_over_standard_struct/"),
-			"/r/rust%2fcomments/18t5968/why_use_tuple_struct_over_standard_struct/"
-		);
-		assert_eq!(
-			encode_thread_route("/r/rust/comments/18t5968/kfbqlbc/.json?raw_json=1"),
-			"/r/rust%2fcomments/18t5968/kfbqlbc/.json?raw_json=1"
-		);
-		// A subreddit that happens to be called `comments` still resolves.
-		assert_eq!(encode_thread_route("/r/comments/comments/1x9xx9e/.json"), "/r/comments%2fcomments/1x9xx9e/.json");
-	}
-
-	#[test]
-	fn test_non_thread_paths_are_left_alone() {
-		for path in [
-			"/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL",
-			"/r/rust/about.json?raw_json=1",
-			"/r/rust/hot.json?raw_json=1",
-			"/r/rust/commentsXYZ.json",
-			"/r/rust/s/kPgq8WNHRK",
-			"/user/spez/comments.json?limit=1",
-			"/comments/1x9xx9e",
-		] {
-			assert_eq!(encode_thread_route(path), path, "{path}");
-		}
-	}
-
-	#[test]
 	fn test_blocked_response_reports_the_block_not_a_json_error() {
 		// Reddit's block page is HTML, so serde fails on it. The message the
 		// user sees must not blame JSON parsing.
@@ -964,18 +862,6 @@ mod tests {
 			non_json_response_error(200, "expected value at line 1 column 1", "/r/x/hot.json"),
 			"Failed to parse page JSON data: expected value at line 1 column 1 | /r/x/hot.json"
 		);
-	}
-
-	#[test]
-	fn test_comments_logical_path_removes_transport_encoding() {
-		for (path, expected) in [
-			("/r/rust%2Fcomments/18t5968/title/kfbqlbc/", "/r/rust/comments/18t5968/title/kfbqlbc/"),
-			("/r/rust%2fcomments/18t5968/title/kfbqlbc/", "/r/rust/comments/18t5968/title/kfbqlbc/"),
-			("/comments%2F18t5968/title/", "/comments/18t5968/title/"),
-			("/r/rust%2Fwiki/page", "/r/rust%2Fwiki/page"),
-		] {
-			assert_eq!(comments_logical_path(path), expected);
-		}
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
