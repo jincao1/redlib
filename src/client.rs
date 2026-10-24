@@ -734,10 +734,7 @@ fn non_json_response_error(status: u16, parse_error: &str, path: &str) -> String
 const BLOCKED_ERROR_PREFIX: &str = "Reddit blocked this request (403 Forbidden)";
 
 fn blocked_error(path: &str) -> String {
-	format!(
-		"{BLOCKED_ERROR_PREFIX}: Reddit only serves this page to logged-in sessions. \
-		 If you host this instance, set or renew {REDDIT_COOKIE_SETTING}. | {path}"
-	)
+	format!("{BLOCKED_ERROR_PREFIX}: Reddit only serves this page to logged-in sessions. | {path}")
 }
 
 /// Whether `json()` failed because Reddit only serves the page to logged-in sessions.
@@ -867,8 +864,9 @@ mod tests {
 		assert!(msg.contains("403"), "{msg}");
 		assert!(!msg.contains("Failed to parse page JSON data"), "{msg}");
 
-		// It must name the setting that makes the page work again.
-		assert!(msg.contains("REDLIB_REDDIT_COOKIE"), "{msg}");
+		// The error page links the setting that makes the page work again.
+		assert!(is_blocked_error(&msg), "{msg}");
+		assert!(include_str!("../templates/error.html").contains("REDLIB_REDDIT_COOKIE"));
 		assert!(msg.contains("/r/politics/comments/1x9xx9e/.json"), "{msg}");
 		assert_eq!(msg, blocked_error("/r/politics/comments/1x9xx9e/.json?&sort=confidence&raw_json=1"));
 	}
