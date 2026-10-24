@@ -9,7 +9,7 @@ This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) 
 | Registry | `quay.io/redlib/redlib` | `ghcr.io/nachtalb/redlib` (forks publish to `ghcr.io/<owner>/<repo>`) |
 | Platforms | `linux/amd64`, `linux/arm64`, `linux/arm/v7` | `linux/amd64`, `linux/386`, `linux/arm64`, `linux/arm/v7`, `linux/arm/v6` |
 | Base | Alpine | Distroless `static:nonroot`: static musl binary, no shell or package manager, runs as uid 65532, ~16 MB |
-| Tags | `latest` | `latest` (from `main`) and `sha-<short commit>` |
+| Tags | `latest` | `latest` (from `main`) and `sha-<short commit>`, plus `latest-obscura` and `sha-<short commit>-obscura` (amd64 only, ~76 MB) with the Obscura browser embedded |
 | Health check | Docker `HEALTHCHECK` with `wget /settings` | `GET /healthz` for the orchestrator to probe (the image has no `wget`) |
 
 All platforms are cross-compiled natively on the build host and published under one multi-arch tag, so `docker pull` picks the right one.
@@ -82,6 +82,7 @@ From [0dragosh](https://github.com/0dragosh) ([patch](https://gist.github.com/0d
 Own features:
 
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
+- **Requests go through a headless browser**: with a session set, every Reddit API request is fetched from `www.reddit.com` through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode: one request per page instead of an anonymous attempt followed by session retries. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds keep the plain HTTP client.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
 - **Scraped comments load on demand**: a scraped post page shows Reddit's first batch of comments. "More comments" and "More replies" open a page with the next batch, one request to Reddit per click, with a link back to all comments. `REDLIB_SCRAPE_COMMENT_PREFETCH` loads more up front.
 - **"More replies" and "More comments" load in place**: the comments appear where the link was instead of opening another page. Without JavaScript the link opens the page as before.

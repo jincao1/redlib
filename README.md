@@ -440,6 +440,8 @@ REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=...|reddit_session=...;token_v
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 
+With a session set, Redlib sends every Reddit API request through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser to `www.reddit.com`. It is only in the `ghcr.io/nachtalb/redlib:latest-obscura` image (amd64 only), or build with `cargo build --release --features obscura`. `latest` and default builds keep the plain HTTP client.
+
 ### Scrape fallback
 
 When Reddit blocks a post page and no session gets through, Redlib scrapes the comments from the HTML Reddit serves logged-out visitors. It shows Reddit's first batch; "More comments" and "More replies" fetch more when clicked. To load more up front, set `REDLIB_SCRAPE_COMMENT_PREFETCH` to the number of extra requests per page, e.g. `5`.

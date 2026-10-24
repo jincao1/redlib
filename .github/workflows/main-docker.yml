@@ -20,12 +20,19 @@ jobs:
           - linux/arm64
           - linux/arm/v7
           - linux/arm/v6
+        flavor: [plain]
+        # Obscura embeds V8; only the amd64 build is tested with it.
+        include:
+          - platform: linux/amd64
+            flavor: obscura
     steps:
       - name: Prepare
         run: |
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
           platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          pair=${platform//\//-}
+          [ "${{ matrix.flavor }}" = obscura ] && pair=$pair-obscura
+          echo "PLATFORM_PAIR=$pair" >> "$GITHUB_ENV"
           arch=${platform#linux/}
           echo "CACHE_ARCH=${arch//\//}" >> "$GITHUB_ENV"
 
@@ -80,7 +87,9 @@ jobs:
           context: .
           file: Dockerfile.distroless
           platforms: ${{ matrix.platform }}
-          build-args: GIT_HASH=${{ github.sha }}
+          build-args: |
+            GIT_HASH=${{ github.sha }}
+            OBSCURA=${{ matrix.flavor == 'obscura' }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
@@ -95,7 +104,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v7
         with:
-          name: digests-${{ env.PLATFORM_PAIR }}
+          name: digests-${{ matrix.flavor }}-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -105,6 +114,9 @@ jobs:
     needs: build
     permissions:
       packages: write
+    strategy:
+      matrix:
+        flavor: [plain, obscura]
     steps:
       - name: Prepare
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -113,7 +125,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-*
+          pattern: digests-${{ matrix.flavor }}-*
           merge-multiple: true
 
       - name: Login to GHCR
@@ -131,6 +143,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
+          flavor: suffix=${{ matrix.flavor == 'obscura' && '-obscura' || '' }},onlatest=true
           tags: |
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
