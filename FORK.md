@@ -51,6 +51,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
+- **`seccomp-redlib.json` stopped the container from starting**: current runc needs syscalls the profile blocked, and without `recvmsg` DNS lookups failed so Redlib never started listening. The profile now covers both images on amd64, including the Obscura browser.
 
 ## Features
 
