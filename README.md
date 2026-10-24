@@ -316,7 +316,7 @@ Before=nginx.service
 To deploy Redlib with changes not yet included in the latest release, you can build the application from source.
 
 ```bash
-git clone https://github.com/redlib-org/redlib && cd redlib
+git clone https://github.com/Nachtalb/redlib && cd redlib
 cargo run
 ```
 
@@ -325,8 +325,8 @@ cargo run
 > [!WARNING]
 > These are free hosting options, but they are _not_ private and will monitor server usage to prevent abuse. If you need a free and easy setup, this method may work best for you.
 
-<a href="https://repl.it/github/redlib-org/redlib"><img src="https://repl.it/badge/github/redlib-org/redlib" alt="Run on Repl.it" height="32" /></a>
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/redlib-org/redlib)
+<a href="https://repl.it/github/Nachtalb/redlib"><img src="https://repl.it/badge/github/Nachtalb/redlib" alt="Run on Repl.it" height="32" /></a>
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/Nachtalb/redlib)
 
 ## launchd (macOS)
 
