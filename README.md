@@ -5,7 +5,7 @@
 > It ships multi-arch images for amd64, 386, arm64, arm/v7 and arm/v6, and includes many features and fixes from unmerged upstream pull requests plus its own. See [FORK.md](FORK.md) for the full list of changes.
 
 > [!WARNING]
-> Reddit now blocks post pages for anonymous clients ([#446](https://github.com/redlib-org/redlib/issues/446)). Set a [Reddit session](#reddit-session), or rely on the [scrape fallback](#scrape-fallback) (on by default).
+> Reddit blocks logged-out requests. Run **`ghcr.io/nachtalb/redlib:latest-obscura`** (amd64) with a session in `REDLIB_REDDIT_COOKIE`; it fetches Reddit through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) stealth browser. The plain `latest` image (all architectures) gets most post pages blocked. [Setup →](#reddit-session)
 
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).
 
@@ -205,15 +205,17 @@ docker logs -f redlib
 Deploy Redlib:
 
 ```bash
-docker pull ghcr.io/nachtalb/redlib:latest
-docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest-obscura
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest-obscura
+# docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 ```
 
 Deploy using a different port on the host (in this case, port 80):
 
 ```bash
-docker pull ghcr.io/nachtalb/redlib:latest
-docker run -d --name redlib -p 80:8080 ghcr.io/nachtalb/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest-obscura
+docker run -d --name redlib -p 80:8080 ghcr.io/nachtalb/redlib:latest-obscura
+# docker run -d --name redlib -p 80:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 ```
 
 If you're using a reverse proxy in front of Redlib, prefix the port numbers with `127.0.0.1` so that Redlib only listens on the host port **locally**. For example, if the host port for Redlib is `8080`, specify `127.0.0.1:8080:8080`.
@@ -395,7 +397,8 @@ REDLIB_DEFAULT_USE_HLS = "on"
 > If using the Docker CLI, add ` --env-file .env` to the command that runs Redlib. For example:
 >
 > ```bash
-> docker run -d --name redlib -p 8080:8080 --env-file .env ghcr.io/nachtalb/redlib:latest
+> docker run -d --name redlib -p 8080:8080 --env-file .env ghcr.io/nachtalb/redlib:latest-obscura
+> # docker run -d --name redlib -p 8080:8080 --env-file .env ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 > ```
 >
 > If using Docker Compose, no changes are needed as the `.env` file is already referenced in `compose.yaml` via the `env_file: .env` line.

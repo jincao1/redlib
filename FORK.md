@@ -15,7 +15,8 @@ This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) 
 All platforms are cross-compiled natively on the build host and published under one multi-arch tag, so `docker pull` picks the right one.
 
 ```bash
-docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest-obscura
+# docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 ```
 
 No release binaries are published. Build from source with `cargo build --release`.
@@ -163,6 +164,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 ## Removals
 
 - **quay.io image** and the **Alpine image** (`Dockerfile.alpine`) are replaced by the multi-arch distroless image on GHCR.
+- **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **Release binary, Rust test and pull-request workflows** are disabled (`*.disabled`). Only the container build and lint workflows run.
 
