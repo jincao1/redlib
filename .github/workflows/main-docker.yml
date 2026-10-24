@@ -92,8 +92,8 @@ jobs:
             OBSCURA=${{ matrix.flavor == 'obscura' }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }},mode=max,ignore-error=true
+          cache-from: type=registry,ref=${{ env.IMAGE }}-buildcache:${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}-buildcache:${{ env.PLATFORM_PAIR }},mode=max,ignore-error=true
 
       - name: Export digest
         run: |
