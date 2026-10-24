@@ -1,6 +1,6 @@
 services:
   redlib:
-    image: quay.io/redlib/redlib:latest
+    image: ghcr.io/nachtalb/redlib:latest
     restart: always
     container_name: "redlib"
     ports:

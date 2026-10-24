@@ -205,15 +205,15 @@ docker logs -f redlib
 Deploy Redlib:
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 8080:8080 quay.io/redlib/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
 ```
 
 Deploy using a different port on the host (in this case, port 80):
 
 ```bash
-docker pull quay.io/redlib/redlib:latest
-docker run -d --name redlib -p 80:8080 quay.io/redlib/redlib:latest
+docker pull ghcr.io/nachtalb/redlib:latest
+docker run -d --name redlib -p 80:8080 ghcr.io/nachtalb/redlib:latest
 ```
 
 If you're using a reverse proxy in front of Redlib, prefix the port numbers with `127.0.0.1` so that Redlib only listens on the host port **locally**. For example, if the host port for Redlib is `8080`, specify `127.0.0.1:8080:8080`.
@@ -316,7 +316,7 @@ Before=nginx.service
 To deploy Redlib with changes not yet included in the latest release, you can build the application from source.
 
 ```bash
-git clone https://github.com/redlib-org/redlib && cd redlib
+git clone https://github.com/Nachtalb/redlib && cd redlib
 cargo run
 ```
 
@@ -325,8 +325,8 @@ cargo run
 > [!WARNING]
 > These are free hosting options, but they are _not_ private and will monitor server usage to prevent abuse. If you need a free and easy setup, this method may work best for you.
 
-<a href="https://repl.it/github/redlib-org/redlib"><img src="https://repl.it/badge/github/redlib-org/redlib" alt="Run on Repl.it" height="32" /></a>
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/redlib-org/redlib)
+<a href="https://repl.it/github/Nachtalb/redlib"><img src="https://repl.it/badge/github/Nachtalb/redlib" alt="Run on Repl.it" height="32" /></a>
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/Nachtalb/redlib)
 
 ## launchd (macOS)
 
@@ -395,7 +395,7 @@ REDLIB_DEFAULT_USE_HLS = "on"
 > If using the Docker CLI, add ` --env-file .env` to the command that runs Redlib. For example:
 >
 > ```bash
-> docker run -d --name redlib -p 8080:8080 --env-file .env quay.io/redlib/redlib:latest
+> docker run -d --name redlib -p 8080:8080 --env-file .env ghcr.io/nachtalb/redlib:latest
 > ```
 >
 > If using Docker Compose, no changes are needed as the `.env` file is already referenced in `compose.yaml` via the `env_file: .env` line.
@@ -426,7 +426,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `ENABLE_GIPHY`            | `["on", "off"]` | `on`                                   | Proxies GIPHY GIFs in comments and plays them inline. Set to `off` to leave them as plain links.          |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
-| `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
+| `SOURCE_URL`              | String          | `https://github.com/Nachtalb/redlib`   | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
 | `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Scrapes post pages from Reddit's HTML when Reddit blocks them. See [Scrape fallback](#scrape-fallback). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
