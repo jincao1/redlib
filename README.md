@@ -426,7 +426,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_REDGIFS`          | `["on", "off"]` | `on`                                   | Proxies RedGifs videos and plays them inline. Set to `off` to leave RedGifs as plain links.               |
 | `ENABLE_GIPHY`            | `["on", "off"]` | `on`                                   | Proxies GIPHY GIFs in comments and plays them inline. Set to `off` to leave them as plain links.          |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
-| `SOURCE_URL`              | String          | `https://github.com/redlib-org/redlib` | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
+| `SOURCE_URL`              | String          | `https://github.com/Nachtalb/redlib`   | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
 | `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Scrapes post pages from Reddit's HTML when Reddit blocks them. See [Scrape fallback](#scrape-fallback). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
