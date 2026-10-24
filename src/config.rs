@@ -106,6 +106,9 @@ pub struct Config {
 	#[serde(rename = "REDLIB_ENABLE_REDGIFS")]
 	pub(crate) enable_redgifs: Option<String>,
 
+	#[serde(rename = "REDLIB_ENABLE_GIPHY")]
+	pub(crate) enable_giphy: Option<String>,
+
 	#[serde(rename = "REDLIB_ENABLE_SCRAPE_FALLBACK")]
 	pub(crate) enable_scrape_fallback: Option<String>,
 
@@ -186,6 +189,7 @@ impl Config {
 			pushshift: parse("REDLIB_PUSHSHIFT_FRONTEND"),
 			enable_rss: parse("REDLIB_ENABLE_RSS"),
 			enable_redgifs: parse("REDLIB_ENABLE_REDGIFS"),
+			enable_giphy: parse("REDLIB_ENABLE_GIPHY"),
 			enable_scrape_fallback: parse("REDLIB_ENABLE_SCRAPE_FALLBACK"),
 			scrape_comment_prefetch: parse("REDLIB_SCRAPE_COMMENT_PREFETCH"),
 			full_url: parse("REDLIB_FULL_URL"),
@@ -225,6 +229,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_PUSHSHIFT_FRONTEND" => config.pushshift.clone(),
 		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
 		"REDLIB_ENABLE_REDGIFS" => config.enable_redgifs.clone(),
+		"REDLIB_ENABLE_GIPHY" => config.enable_giphy.clone(),
 		"REDLIB_ENABLE_SCRAPE_FALLBACK" => config.enable_scrape_fallback.clone(),
 		"REDLIB_SCRAPE_COMMENT_PREFETCH" => config.scrape_comment_prefetch.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),

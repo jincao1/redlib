@@ -1411,8 +1411,11 @@ pub fn rewrite_emotes(media_metadata: &Value, comment: String) -> String {
 	// Call rewrite_urls() to transform any other Reddit links
 	let comment = rewrite_urls(&comment);
 
-	// Rewrite Giphy links to embedded videos
-	rewrite_giphy_links(&comment)
+	if enable_giphy() {
+		rewrite_giphy_links(&comment)
+	} else {
+		comment
+	}
 }
 
 /// Format vote count to a string that will be displayed.
@@ -1551,6 +1554,10 @@ pub fn enable_rss() -> bool {
 
 pub fn enable_redgifs() -> bool {
 	get_setting("REDLIB_ENABLE_REDGIFS").is_none_or(|val| val != "off")
+}
+
+pub fn enable_giphy() -> bool {
+	get_setting("REDLIB_ENABLE_GIPHY").is_none_or(|val| val != "off")
 }
 
 pub fn enable_scrape_fallback() -> bool {
