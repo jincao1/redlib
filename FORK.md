@@ -164,6 +164,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 ## Removals
 
 - **quay.io image** and the **Alpine image** (`Dockerfile.alpine`) are replaced by the multi-arch distroless image on GHCR.
+- **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **Release binary, Rust test and pull-request workflows** are disabled (`*.disabled`). Only the container build and lint workflows run.
 
