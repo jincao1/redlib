@@ -29,9 +29,8 @@ Bugs present in upstream Redlib that are fixed here:
 - **`/commits.atom` and `/instances.json` crashed the request** when GitHub was unreachable. They now serve the last good copy, or a 502 ([redlib-org#396](https://github.com/redlib-org/redlib/pull/396), ported).
 - **Error pages called fork builds outdated**: the update check compared the instance's commit with upstream's commit list, so every fork build was "at least 20 commits old". It now checks the repository in `REDLIB_SOURCE_URL`.
 - **Error pages were cluttered**: the whole message filled the heading above six spaced-out lines, and "Report an issue" opened upstream. They now show the error, one line of detail, the requested Reddit URL and one link row (Reddit status, report an issue on this fork, try another instance). An outdated instance gets a red bar above the footer instead of a status line.
-- **Post pages failed** with `Failed to parse page JSON data`: Reddit blocks `/r/<sub>/comments/...` for anonymous clients, so the slash before `comments` is encoded. A block is now reported as a block instead of a JSON error. Short `/comments/<id>` links stay blocked ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592)).
+- **Post pages failed** with `Failed to parse page JSON data` when Reddit blocked them for anonymous clients. A block is now reported as a block instead of a JSON error.
 - **Text after a `redditstatic.com` link was mangled**: the rewrite regex matched to the end of the line and also caught other hosts (upstream `6aef54e`, `42c5d6f`).
-- **Redirects kept the encoded `%2Fcomments` path** when Reddit reflected the anonymous-block workaround back (upstream `57688c9`).
 - **Subscriptions and filters were wiped** when saving a single setting ([redlib-org#562](https://github.com/redlib-org/redlib/issues/562)).
 - **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)).
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
@@ -169,6 +168,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **quay.io image** and the **Alpine image** (`Dockerfile.alpine`) are replaced by the multi-arch distroless image on GHCR.
 - **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
+- **`%2fcomments` path encoding** of thread requests ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592), [#591](https://github.com/redlib-org/redlib/issues/591)): Reddit decodes the path before blocking it, so it only marked requests as coming from Redlib.
 - **Release binary, Rust test and pull-request workflows** are disabled (`*.disabled`). Only the container build and lint workflows run.
 
 ## Development
