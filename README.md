@@ -5,7 +5,7 @@
 > It ships multi-arch images for amd64, 386, arm64, arm/v7 and arm/v6, and includes many features and fixes from unmerged upstream pull requests plus its own. See [FORK.md](FORK.md) for the full list of changes.
 
 > [!WARNING]
-> Reddit now blocks post pages for anonymous clients ([#446](https://github.com/redlib-org/redlib/issues/446)). Set a [Reddit session](#reddit-session), or rely on the [scrape fallback](#scrape-fallback) (on by default).
+> Reddit blocks logged-out requests. Run **`ghcr.io/nachtalb/redlib:latest-obscura`** (amd64) with a session in `REDLIB_REDDIT_COOKIE`; it fetches Reddit through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) stealth browser. The plain `latest` image (all architectures) gets most post pages blocked. [Setup →](#reddit-session)
 
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).
 
