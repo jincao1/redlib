@@ -3,7 +3,7 @@ use crate::config::get_setting;
 use crate::dbg_msg;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
 use crate::server::RequestExt;
-use crate::utils::{format_url, Post};
+use crate::utils::{enable_gql, format_url, Post};
 use arc_swap::ArcSwap;
 use bytes::Buf;
 use cached::proc_macro::cached;
@@ -482,6 +482,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	if crate::obscura_client::enabled() {
 		match web_json(&path).await {
 			Err(e) if quarantine && (e == "quarantined" || e == "gated") => {}
+			Err(e) if is_blocked_error(&e) => return gql_fallback(&path, quarantine).await.ok_or(e),
 			result => return result,
 		}
 	}
@@ -503,6 +504,16 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		Ok(response) => {
 			let mut response = response;
 			let mut from_web_session = false;
+
+			// Reddit's network security block is an HTML page; private and
+			// quarantined subreddits answer with JSON 403s.
+			let blocked =
+				response.status() == wreq::StatusCode::FORBIDDEN && response.headers().get(wreq_header::CONTENT_TYPE).is_some_and(|v| v.as_bytes().starts_with(b"text/html"));
+			if blocked {
+				if let Some(json) = gql_fallback(&path, quarantine).await {
+					return Ok(json);
+				}
+			}
 
 			// Reddit answers logged-out `.json` requests with an HTML block
 			// page and HTTP 403. The same path on the web host returns JSON
@@ -592,6 +603,20 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// The GraphQL equivalent of a blocked `path`, if there is one and it answered.
+async fn gql_fallback(path: &str, quarantine: bool) -> Option<Value> {
+	if !enable_gql() {
+		return None;
+	}
+	match Box::pin(crate::gql::json(path, quarantine)).await? {
+		Ok(json) => Some(json),
+		Err(e) => {
+			warn!("GraphQL fallback failed for {path}: {e}");
+			None
+		}
 	}
 }
 

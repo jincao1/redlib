@@ -83,8 +83,13 @@ From [0dragosh](https://github.com/0dragosh) ([patch](https://gist.github.com/0d
 
 - **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. When a request is blocked, it is retried on `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. The cookie never shows on `/info` and is never logged. See [Reddit session](README.md#reddit-session).
 
+From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e)):
+
+- **Comments from GraphQL**: when Reddit blocks a thread's JSON, the comments come from the Android app's GraphQL API, which still answers anonymously. Tried before session cookies and scraping; turn it off with `REDLIB_ENABLE_GQL=off`.
+
 Own features:
 
+- **More pages from GraphQL**: the same fallback also covers posts by ID, subreddit/popular/all listings, search, subreddit info and sidebar, and user pages (a user's overview is one merged page of posts and comments).
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
 - **Requests go through a headless browser**: with a session set, every Reddit API request is fetched from `www.reddit.com` through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode: one request per page instead of an anonymous attempt followed by session retries. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds keep the plain HTTP client.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
@@ -106,6 +111,7 @@ Own features:
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
 | `REDLIB_ENABLE_GIPHY` | `on` | Proxy GIPHY GIFs in comments and play them inline. `off` leaves them as plain links. |
 | `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Scrape post pages from Reddit's HTML when Reddit blocks the thread JSON. `off` shows the block error instead. |
+| `REDLIB_ENABLE_GQL` | `on` | Load pages Reddit blocks from its GraphQL API. `off` never contacts GraphQL. |
 | `REDLIB_SCRAPE_COMMENT_PREFETCH` | `0` | Extra requests a scraped post page makes to load more comments up front. `0` loads them only when asked. |
 | `REDLIB_REDDIT_COOKIE` | (empty) | `Cookie` header of a logged-in reddit.com session, several separated by `\|`. Needed for post pages. **Secret.** |
 | `REDLIB_SOURCE_URL` | `https://github.com/Nachtalb/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |

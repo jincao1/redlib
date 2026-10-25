@@ -79,6 +79,8 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 		query: param(&format!("?{params}"), "more_query").unwrap_or_default(),
 	});
 	let more_page = more.is_some();
+	// GraphQL cursors mean nothing to the scraper
+	let more = more.filter(|more| more.query != crate::gql::MORE_QUERY);
 
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);
@@ -241,7 +243,14 @@ fn collect_rss_comments(listing: &serde_json::Value, link_title: &str, items: &m
 
 // COMMENTS
 
-fn parse_comments(json: &serde_json::Value, post_link: &str, post_author: &str, highlighted_comment: &str, filters: &HashSet<String>, req: &Request<Body>) -> Vec<Comment> {
+pub(crate) fn parse_comments(
+	json: &serde_json::Value,
+	post_link: &str,
+	post_author: &str,
+	highlighted_comment: &str,
+	filters: &HashSet<String>,
+	req: &Request<Body>,
+) -> Vec<Comment> {
 	// Parse the comment JSON into a Vector of Comments
 	let comments = json["data"]["children"].as_array().map_or(Vec::new(), std::borrow::ToOwned::to_owned);
 
