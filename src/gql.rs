@@ -33,6 +33,9 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	Some(match segments.as_slice() {
 		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
 		["r", sub, "about"] => about(sub).await,
+		["search"] => search(path, None).await,
+		["r", sub, "search"] => search(path, Some(sub)).await,
+		["subreddits", "search"] => search_subreddits(path).await,
 		["r", "all", rest @ ..] => all(path, sort(rest)?).await,
 		["r", "popular", rest @ ..] => feed("PopularFeedElements", POPULAR_FEED_HASH, feed_variables(path, sort(rest)?), "/popular/elements").await,
 		["r", sub, rest @ ..] if !sub.contains('+') && !sub.contains("%2B") => {
@@ -437,6 +440,52 @@ fn subreddit(node: &Value) -> Option<Value> {
 	} }))
 }
 
+const SEARCH_POSTS_HASH: &str = "8610e33521c90caa8d12576800c18b708ce0d19df3dfac8e2aad55d9860e4bf9";
+const SEARCH_COMMUNITIES_HASH: &str = "a3333069c1ead3ceec6d9bf4da4185ff584f69d0ba8b586e545b32ea62170932";
+
+/// Variables of a search query for the search `path`; its cursors are the base64 of the JSON API's `after`.
+fn search_variables(path: &str, query: String) -> Value {
+	let mut variables = json_value!({
+		"query": query,
+		"filters": [],
+		"productSurface": "",
+		"pageSize": param(path, "limit").and_then(|l| l.parse::<u32>().ok()).unwrap_or(25),
+	});
+	if let Some(after) = param(path, "after").filter(|a| !a.is_empty()) {
+		variables["afterCursor"] = STANDARD.encode(after).into();
+	}
+	variables
+}
+
+async fn search(path: &str, sub: Option<&str>) -> Result<Value, String> {
+	let mut query = param(path, "q").unwrap_or_default();
+	if let Some(sub) = sub.filter(|_| param(path, "restrict_sr").is_some_and(|r| !r.is_empty())) {
+		query = format!("{query} subreddit:{sub}");
+	}
+	let sort = param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "relevance".to_string());
+	let mut variables = search_variables(path, query);
+	variables["sort"] = sort.to_uppercase().into();
+	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && t != "all" && sort != "new") {
+		variables["filters"] = json_value!([{ "key": "time_range", "value": range }]);
+	}
+	let mut listing = feed("SearchPosts", SEARCH_POSTS_HASH, variables, "/search/general/posts").await?;
+	if param(path, "include_over_18").is_none() {
+		if let Some(posts) = listing["data"]["children"].as_array_mut() {
+			posts.retain(|post| post["data"]["over_18"] != true);
+		}
+	}
+	Ok(listing)
+}
+
+async fn search_subreddits(path: &str) -> Result<Value, String> {
+	let variables = search_variables(path, param(path, "q").unwrap_or_default());
+	let response = query("SearchCommunities", SEARCH_COMMUNITIES_HASH, &variables).await?;
+	let communities = response["data"]["search"]["general"]["communities"]["edges"]
+		.as_array()
+		.ok_or("SearchCommunities returned no subreddits")?;
+	Ok(listing(communities.iter().filter_map(|edge| subreddit(&edge["node"])).collect()))
+}
+
 /// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
 fn video_fallback_url(node: &Value, streaming: &Value) -> String {
 	let dimensions = &streaming["dimensions"];
@@ -716,6 +765,20 @@ mod tests {
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
+	}
+
+	#[tokio::test]
+	async fn test_search_fixtures() {
+		let posts = post_listing(&fixture("search_posts.json")["data"]["search"]["general"]["posts"]);
+		assert_eq!(posts["data"]["after"], "24");
+		let first = crate::utils::parse_post(&posts["data"]["children"][0]).await;
+		assert_eq!(first.title, "Rust features in the future");
+
+		let communities = &fixture("search_communities.json")["data"]["search"]["general"]["communities"]["edges"];
+		let subs: Vec<Value> = communities.as_array().unwrap().iter().filter_map(|edge| subreddit(&edge["node"])).collect();
+		assert_eq!(subs.iter().map(|s| crate::utils::val(s, "display_name")).collect::<Vec<_>>(), ["rust", "playrust"]);
+		assert_eq!(crate::utils::val(&subs[0], "url"), "/r/rust/");
+		assert!(subs[0]["data"]["subscribers"].as_f64().is_some());
 	}
 
 	#[test]

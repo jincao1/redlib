@@ -1,0 +1,102 @@
+{
+  "data": {
+    "search": {
+      "general": {
+        "posts": {
+          "edges": [
+            {
+              "node": {
+                "__typename": "SubredditPost",
+                "id": "t3_1xd8kbm",
+                "title": "Rust features in the future",
+                "authorInfo": {
+                  "name": "JoshTriplett"
+                },
+                "subreddit": {
+                  "name": "rust",
+                  "prefixedName": "r/rust"
+                },
+                "permalink": "/r/rust/comments/1xd8kbm/rust_features_in_the_future/",
+                "url": "https://lwn.net/SubscriberLink/1099606/20707a62817cdd16/",
+                "domain": "lwn.net",
+                "isSelfPost": false,
+                "score": 197,
+                "upvoteRatio": 0.958139534883721,
+                "commentCount": 74,
+                "createdAt": "2026-10-23T08:41:01.162000+0000",
+                "isNsfw": false,
+                "postHint": null,
+                "flair": null,
+                "authorFlair": {
+                  "__typename": "AuthorFlair",
+                  "richtext": null,
+                  "template": {
+                    "backgroundColor": null,
+                    "id": null,
+                    "isEditable": false,
+                    "isModOnly": false
+                  },
+                  "text": "rust · lang · libs · cargo",
+                  "textColor": "DARK"
+                },
+                "thumbnail": null,
+                "isThumbnailEnabled": false
+              }
+            },
+            {
+              "node": {
+                "__typename": "SubredditPost",
+                "id": "t3_1xe3oph",
+                "title": "I don't understand why they do it like this.",
+                "authorInfo": {
+                  "name": "imlaming"
+                },
+                "subreddit": {
+                  "name": "playrust",
+                  "prefixedName": "r/playrust"
+                },
+                "permalink": "/r/playrust/comments/1xe3oph/i_dont_understand_why_they_do_it_like_this/",
+                "url": "https://i.imgur.com/iJ1ocBN.png",
+                "domain": "i.imgur.com",
+                "isSelfPost": false,
+                "score": 88,
+                "upvoteRatio": 0.9,
+                "commentCount": 90,
+                "createdAt": "2026-10-24T08:54:48.051000+0000",
+                "isNsfw": false,
+                "postHint": "IMAGE",
+                "flair": {
+                  "__typename": "PostFlair",
+                  "richtext": "[{\"e\":\"text\",\"t\":\"Discussion\"}]",
+                  "template": {
+                    "backgroundColor": null,
+                    "id": "713555fc-7e26-11e3-8da1-12313b0ce8a6",
+                    "isEditable": false
+                  },
+                  "text": "Discussion",
+                  "textColor": "DARK",
+                  "type": "richtext"
+                },
+                "authorFlair": null,
+                "thumbnail": {
+                  "__typename": "MediaSource",
+                  "dimensions": {
+                    "height": 92,
+                    "width": 140
+                  },
+                  "url": "https://external-preview.redd.it/E1TWQQ3G-9-H1EL8CtqtSLh1VOHVuYkZJ3-fdOrjY2E.png?width=140&height=92&auto=webp&s=f2aa11eaa63dbf8cce4d866b3fe8c062bf7f4b01"
+                },
+                "isThumbnailEnabled": true
+              }
+            }
+          ],
+          "pageInfo": {
+            "__typename": "PageInfo",
+            "endCursor": "MjQ=",
+            "hasNextPage": true
+          }
+        }
+      }
+    }
+  }
+}
