@@ -606,6 +606,7 @@ aside {
 
 #feeds > summary {
     padding: 8px 15px;
+    cursor: pointer;
 }
 
 #feed_list {
