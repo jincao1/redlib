@@ -162,7 +162,7 @@ async fn main() {
 				.long("address")
 				.value_name("ADDRESS")
 				.help("Sets address to listen on")
-				.default_value(setting_or("REDLIB_ADDRESS", "[::]"))
+				.default_value(setting_or("REDLIB_LISTEN_ADDRESS", "[::]"))
 				.num_args(1),
 		)
 		.arg(
@@ -172,7 +172,7 @@ async fn main() {
 				.value_name("PORT")
 				.env("PORT")
 				.help("Port to listen on")
-				.default_value(setting_or("REDLIB_PORT", "8080"))
+				.default_value(setting_or("REDLIB_LISTEN_PORT", "8080"))
 				.action(ArgAction::Set)
 				.num_args(1),
 		)
