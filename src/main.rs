@@ -216,6 +216,7 @@ async fn main() {
 		),
 		flags => flags,
 	};
+	redlib::client::IPV6_ONLY.store(ipv6_only, std::sync::atomic::Ordering::Relaxed);
 
 	let listener = if ipv4_only {
 		format!("0.0.0.0:{port}")
