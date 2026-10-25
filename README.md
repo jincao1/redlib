@@ -261,12 +261,12 @@ systemctl --user status redlib.service
 
 ## Binary
 
-If you're on Linux, you can grab a binary from [the newest release](https://github.com/redlib-org/redlib/releases/latest) from GitHub.
+If you're on Linux, you can grab a static binary from [the latest release](https://github.com/Nachtalb/redlib/releases/latest), rebuilt on every push to `main`. It has builds for `x86_64`, `i686`, `aarch64`, `armv7` and `arm` (v6), plus `SHA256SUMS`.
 
-Download the binary using [Wget](https://www.gnu.org/software/wget/):
+Download the binary for your architecture using [curl](https://curl.se/):
 
 ```bash
-wget https://github.com/redlib-org/redlib/releases/download/v0.31.0/redlib
+curl -fL -o redlib https://github.com/Nachtalb/redlib/releases/latest/download/redlib-x86_64-unknown-linux-musl
 ```
 
 Make the binary executable and change its ownership to `root`:
