@@ -32,6 +32,7 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	let segments: Vec<&str> = route.trim_end_matches(".json").split('/').filter(|s| !s.is_empty()).collect();
 	Some(match segments.as_slice() {
 		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
+		["r", sub, "about"] => about(sub).await,
 		["r", "all", rest @ ..] => all(path, sort(rest)?).await,
 		["r", "popular", rest @ ..] => feed("PopularFeedElements", POPULAR_FEED_HASH, feed_variables(path, sort(rest)?), "/popular/elements").await,
 		["r", sub, rest @ ..] if !sub.contains('+') && !sub.contains("%2B") => {
@@ -405,6 +406,37 @@ fn post(node: &Value) -> Option<Value> {
 	Some(json_value!({ "kind": "t3", "data": data }))
 }
 
+const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
+
+async fn about(name: &str) -> Result<Value, String> {
+	let variables = json_value!({ "subredditName": name, "filterGated": false, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false });
+	let response = query("SubredditInfoByName", SUBREDDIT_INFO_HASH, &variables).await?;
+	subreddit(&response["data"]["subredditInfoByName"]).ok_or_else(|| format!("r/{name} not found"))
+}
+
+/// Converts a GraphQL subreddit into a subreddit of the JSON API (`about.json`).
+fn subreddit(node: &Value) -> Option<Value> {
+	let name = node["name"].as_str()?;
+	let description = &node["description"];
+	let richtext: Value = description["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	Some(json_value!({ "kind": "t5", "data": {
+		"name": node["id"],
+		"display_name": name,
+		"display_name_prefixed": node["prefixedName"],
+		"url": node["path"],
+		"title": node["title"],
+		"public_description": node["publicDescriptionText"],
+		"description": description["markdown"],
+		"description_html": format!("<div class=\"md\">{}</div>", render(&richtext["document"], &Value::Null)),
+		"community_icon": node["styles"]["icon"],
+		"icon_img": node["styles"]["legacyIcon"]["url"],
+		"subscribers": node["subscribersCount"],
+		"accounts_active": node["activeCount"],
+		"wiki_enabled": node["wikiEditMode"].as_str().is_some_and(|mode| mode != "DISABLED"),
+		"over18": node["isNsfw"] == true,
+	} }))
+}
+
 /// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
 fn video_fallback_url(node: &Value, streaming: &Value) -> String {
 	let dimensions = &streaming["dimensions"];
@@ -684,5 +716,20 @@ mod tests {
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
+	}
+
+	#[test]
+	fn test_subreddit_info_fixture() {
+		let about = subreddit(&fixture("subreddit_info.json")["data"]["subredditInfoByName"]).unwrap();
+		let val = |key| crate::utils::val(&about, key);
+		assert_eq!((val("display_name"), val("title")), ("rust".to_string(), "The Rust Programming Language".to_string()));
+		assert!(val("public_description").starts_with("A place for all things related to the Rust"));
+		assert!(val("community_icon").starts_with("https://styles.redditmedia.com/"));
+		assert_eq!(about["data"]["subscribers"].as_u64(), Some(427823));
+		let html = val("description_html");
+		assert!(
+			html.contains(r#"<h3>Please read <a href="https://www.rust-lang.org/policies/code-of-conduct"><strong>The Rust Community Code of Conduct</strong></a></h3><hr>"#),
+			"{html}"
+		);
 	}
 }
