@@ -418,6 +418,10 @@ button {
     cursor: pointer;
 }
 
+summary {
+    cursor: pointer;
+}
+
 hr {
     margin: 20px 0;
 }
