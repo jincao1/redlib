@@ -204,7 +204,7 @@ Load and start it with `launchctl load ~/Library/LaunchAgents/redlib.plist`.
 <details>
 <summary><b>Cloudflare WAF rule</b></summary>
 
-Behind Cloudflare, a custom WAF rule with the action **Managed Challenge** keeps bots and scrapers off your instance, so they don't burn through its Reddit quota. Visitors solve the challenge once and keep the `cf_clearance` cookie; static files, the health badge and an optional status probe with a secret header pass without one. This is the rule r.naa.gg uses, with your host and a random secret filled in:
+Behind Cloudflare, a custom WAF rule with the action **Managed Challenge** keeps bots and scrapers off your instance, so they don't burn through its Reddit quota. Visitors solve the challenge once and keep the `cf_clearance` cookie; static files, the health badge, `/info.json` and an optional status probe with a secret header pass without one. This is the rule r.naa.gg uses, with your host and a random secret filled in:
 
 ```
 (http.request.full_uri wildcard r"https://redlib.example.com/*"
@@ -216,6 +216,7 @@ Behind Cloudflare, a custom WAF rule with the action **Managed Challenge** keeps
  and not ends_with(http.request.uri.path, ".woff2")
  and not ends_with(http.request.uri.path, "manifest.json")
  and http.request.uri.path ne "/healthz/reddit.json"
+ and http.request.uri.path ne "/info.json"
  and not (http.request.uri.path in {"/settings" "/healthz/reddit"}
           and http.request.headers["x-status-probe"][0] eq "<random secret>"))
 ```
