@@ -165,7 +165,7 @@ With `REDLIB_ENABLE_RSS=on`, append `.rss` to a page URL, as on Reddit. Both `/r
 Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rate limits, failed token refreshes, broken media):
 
 - **wreq** `6.0.0-rc.28` → `0.16.1` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.1 also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
-- The emulated browsers are Chrome 149 and Firefox 151 (the newest profiles in wreq-util 0.2.0, up from Chrome 145 and Firefox 147), each on Android or Windows, chosen at random. Their JA4, Akamai HTTP/2 and peetprint fingerprints were checked against tls.peet.ws after every upgrade.
+- The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a random platform it ships on, and switches to another one when Reddit refuses every session (at most once a minute).
 - **hyper** `0.14` → `1.x` for the server, with graceful shutdown.
 - **Spoofed Android app versions** refreshed from Nov 2024 builds to Reddit 2026.33–2026.42 on Android 12–16, with a working `update_oauth_resources.sh` ([polak14 `e19df3b`](https://github.com/polak14/redlib/commit/e19df3b54e2a9b7628a09453bad1afb64b399df8)).
 - **hls.js** `1.5.1` → `1.7.3`.
