@@ -76,18 +76,52 @@ const URL_PAIRS: [(&str, &str); 2] = [
 	(REDDIT_SHORT_URL_BASE, REDDIT_SHORT_URL_BASE_HOST),
 ];
 
-pub fn build_client() -> WreqClient {
-	// Keeping this list short to aid in privacy.
-	// The more emulations, the more unique a fingerprint each instance has.
-	// But some emulations should increase evasiveness.
-	let profiles = [Profile::Chrome149, Profile::Firefox151];
-	let platforms = [Platform::Android, Platform::Windows];
+/// Browser emulations the client picks from, each with the platforms that
+/// browser ships on. Opera on Linux/Android is left out because wreq-util
+/// sends a macOS user agent for it there.
+const EMULATIONS: &[(Profile, &[Platform])] = {
+	use Platform::*;
+	use Profile::*;
+	&[
+		(Chrome149, &[Windows, MacOS, Linux, Android]),
+		(Chrome148, &[Windows, MacOS, Linux, Android]),
+		(Chrome147, &[Windows, MacOS, Linux, Android]),
+		(Edge148, &[Windows, MacOS]),
+		(Edge147, &[Windows, MacOS]),
+		(Firefox151, &[Windows, MacOS, Linux, Android]),
+		(Firefox150, &[Windows, MacOS, Linux, Android]),
+		(Firefox149, &[Windows, MacOS, Linux]),
+		(Safari26_4, &[MacOS]),
+		(Safari26_3, &[MacOS]),
+		(SafariIos26_2, &[IOS]),
+		(SafariIpad26_2, &[IOS]),
+		(Opera131, &[Windows, MacOS]),
+		(Opera130, &[Windows, MacOS]),
+	]
+};
 
-	let rand = fastrand::usize(..);
-	let (profile, platform) = (profiles[rand % profiles.len()], platforms[rand % platforms.len()]);
+/// Index into the flattened `EMULATIONS` pairs of the emulation in use.
+static EMULATION: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+fn emulation_pairs() -> impl Iterator<Item = (Profile, Platform)> {
+	EMULATIONS
+		.iter()
+		.flat_map(|(profile, platforms)| platforms.iter().map(move |platform| (*profile, *platform)))
+}
+
+/// Builds a client with a random browser emulation other than the current one.
+pub fn build_client() -> WreqClient {
+	let count = emulation_pairs().count();
+	let current = EMULATION.load(Ordering::Relaxed);
+	let mut index = fastrand::usize(..count);
+	if index == current {
+		index = (index + 1 + fastrand::usize(..count - 1)) % count;
+	}
+	EMULATION.store(index, Ordering::Relaxed);
+	let (profile, platform) = emulation_pairs().nth(index).expect("index is within the emulation pairs");
 	let emulation = Emulation::builder().profile(profile).platform(platform).build();
 
-	info!("Building Wreq client with random emulation {:?} on {:?}", profile, platform);
+	info!("Building Wreq client with random emulation {profile:?} on {platform:?}");
 	WreqClient::builder()
 		.emulation(emulation)
 		.redirect(Policy::none())
@@ -871,6 +905,16 @@ mod tests {
 	#[sealed_test]
 	fn test_session_cookie_is_optional() {
 		assert!(session_cookies().is_empty());
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_new_client_never_reuses_the_current_emulation() {
+		for _ in 0..200 {
+			let before = EMULATION.load(Ordering::Relaxed);
+			build_client();
+			assert_ne!(EMULATION.load(Ordering::Relaxed), before);
+		}
 	}
 
 	#[test]
