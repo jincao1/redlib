@@ -1,6 +1,8 @@
+use super::{check_json, non_json_failure, Backend, Failure, Fetch};
 use crate::client::session_cookies;
 use log::{trace, warn};
 use obscura::Browser;
+use serde_json::Value;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -37,15 +39,41 @@ static WORKER: LazyLock<mpsc::UnboundedSender<Job>> = LazyLock::new(|| {
 	tx
 });
 
-/// Whether Reddit requests go through Obscura: only with a logged-in session,
-/// because Reddit refuses logged-out `.json` requests on its web host.
-pub fn enabled() -> bool {
-	!session_cookies().is_empty()
+/// Reddit's web host through Obscura with the logged-in sessions from `REDLIB_REDDIT_COOKIE`.
+pub struct ObscuraCookiedJson;
+
+impl Backend for ObscuraCookiedJson {
+	fn name(&self) -> &'static str {
+		"obscura-cookied-json"
+	}
+
+	/// Only with a logged-in session: Reddit refuses logged-out `.json`
+	/// requests on its web host.
+	fn available(&self) -> bool {
+		!session_cookies().is_empty()
+	}
+
+	fn logged_in(&self) -> bool {
+		true
+	}
+
+	fn fetch<'a>(&'a self, path: &'a str, _quarantine: bool) -> Fetch<'a> {
+		Box::pin(async move {
+			let (status, body) = get(path).await.map_err(|e| Failure::Network(format!("Couldn't send request to Reddit: {e} | {path}")))?;
+			match serde_json::from_slice::<Value>(&body) {
+				Ok(json) => check_json(json, path).await,
+				Err(e) => Err(match status {
+					429 | 500..=599 => non_json_failure(status, &e.to_string(), path),
+					_ => Failure::Blocked,
+				}),
+			}
+		})
+	}
 }
 
 /// Fetches `path` from www.reddit.com with the configured sessions in turn and
 /// returns the status and body of the first success, or of the last refusal.
-pub async fn get(path: &str) -> Reply {
+async fn get(path: &str) -> Reply {
 	let (reply, rx) = oneshot::channel();
 	let job = Job { path: path.to_string(), reply };
 	WORKER.send(job).map_err(|_| "Obscura thread is gone".to_string())?;

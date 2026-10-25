@@ -5,7 +5,7 @@ use crate::utils::{
 	build_rss_items, catch_random, clean_url, enable_rss, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls,
 	rss_page_link, rss_page_path, rss_response, setting, setting_or_default, should_be_nsfw_gated, template, val, Post, Preferences, Subreddit, RSS_LISTING_SORTS,
 };
-use crate::{client::json, server::RequestExt, server::ResponseExt};
+use crate::{backends::json, server::RequestExt, server::ResponseExt};
 use askama::Template;
 use cookie::Cookie;
 use hyper::{Request, Response};
