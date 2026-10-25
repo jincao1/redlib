@@ -59,7 +59,7 @@ Bugs present in upstream Redlib that are fixed here:
 
 From upstream pull requests that are not merged upstream:
 
-- **RedGifs videos** play inline, proxied through the instance ([redlib-org#507](https://github.com/redlib-org/redlib/pull/507)). Can be turned off with `REDLIB_ENABLE_REDGIFS=off`.
+- **RedGifs videos** play inline, proxied through the instance ([redlib-org#507](https://github.com/redlib-org/redlib/pull/507)). Can be turned off with `REDLIB_ENABLE_REDGIFS=off`. Its token is renewed when Redlib switches browser identity ([fartek](https://github.com/fartek), [#61](https://github.com/Nachtalb/redlib/issues/61)), and RedGifs is reached over IPv4 only unless Redlib runs IPv6-only.
 - **GIPHY GIFs in comments** are proxied and embedded ([redlib-org#561](https://github.com/redlib-org/redlib/pull/561)). Can be turned off with `REDLIB_ENABLE_GIPHY=off`.
 - **Keyboard navigation** on post pages ([redlib-org#422](https://github.com/redlib-org/redlib/pull/422)): `j` / `k` next / previous comment, `t` / `p` next / previous thread, `Enter` open the post link, `Shift+Enter` open it in a new tab.
 - **Collapse a comment** by clicking its indent line ([redlib-org#291](https://github.com/redlib-org/redlib/pull/291)).
