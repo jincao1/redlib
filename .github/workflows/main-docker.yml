@@ -3,6 +3,16 @@ name: Container build
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "templates/**"
+      - "static/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile.distroless"
+      - ".dockerignore"
+      - ".github/workflows/main-docker.yml"
   workflow_dispatch:
 
 concurrency:
