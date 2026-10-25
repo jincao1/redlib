@@ -148,13 +148,31 @@ pub struct Config {
 }
 
 impl Config {
+	/// Parses a config file. Every setting is a string, so numbers are read as
+	/// text and booleans as `on`/`off`.
+	fn parse_file(file: &str) -> Result<Self, toml::de::Error> {
+		let table: toml::Table = file.parse()?;
+		let table = table
+			.into_iter()
+			.map(|(key, value)| {
+				let value = match value {
+					toml::Value::String(s) => s,
+					toml::Value::Boolean(b) => if b { "on" } else { "off" }.to_string(),
+					other => other.to_string(),
+				};
+				(key, toml::Value::String(value))
+			})
+			.collect();
+		toml::Value::Table(table).try_into()
+	}
+
 	/// Load the configuration from the environment variables and the config file.
 	/// In the case that there are no environment variables set and there is no
 	/// config file, this function returns a Config that contains all None values.
 	pub fn load() -> Self {
 		let load_config = |name: &str| {
-			let new_file = read_to_string(name);
-			new_file.ok().and_then(|new_file| toml::from_str::<Self>(&new_file).ok())
+			let file = read_to_string(name).ok()?;
+			Self::parse_file(&file).ok()
 		};
 
 		let config = load_config("redlib.toml").or_else(|| load_config("libreddit.toml")).unwrap_or_default();
@@ -264,6 +282,16 @@ mod tests {
 		// Must handle empty input
 		let result = toml::from_str::<Config>("");
 		assert!(result.is_ok(), "Error: {}", result.unwrap_err());
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_config_numbers_and_booleans() {
+		let config_to_write = "REDLIB_SCRAPE_COMMENT_PREFETCH = 0\nREDLIB_ENABLE_RSS = false\nREDLIB_DEFAULT_SUBSCRIPTIONS = \"rust\"";
+		write("redlib.toml", config_to_write).unwrap();
+		assert_eq!(get_setting("REDLIB_SCRAPE_COMMENT_PREFETCH"), Some("0".into()));
+		assert_eq!(get_setting("REDLIB_ENABLE_RSS"), Some("off".into()));
+		assert_eq!(get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS"), Some("rust".into()));
 	}
 
 	#[test]
