@@ -5,10 +5,7 @@
     <div id="error">
         <h1>{{ msg }}</h1>
         {% if !detail.is_empty() || blocked %}<p class="error_detail">{{ detail }}
-            {% if blocked %}If you host this instance,
-                {% if obscura %}set or renew <a href="https://github.com/Nachtalb/redlib/tree/main#reddit-session"><code>REDLIB_REDDIT_COOKIE</code></a>.
-                {% else %}set <a href="https://github.com/Nachtalb/redlib/tree/main#reddit-session"><code>REDLIB_REDDIT_COOKIE</code></a> and run the <a href="https://github.com/Nachtalb/redlib/pkgs/container/redlib"><code>latest-obscura</code></a> image.{% endif %}
-            {% endif %}</p>{% endif %}
+            {% if blocked %}If you host this instance, set or renew <a href="https://github.com/Nachtalb/redlib/blob/main/CONFIGURATION.md#reddit-session"><code>REDLIB_REDDIT_COOKIE</code></a>.{% endif %}</p>{% endif %}
         {% if !reddit_url.is_empty() %}<pre class="error_url">{{ reddit_url }}</pre>{% endif %}
         <p class="error_links">
             <a href="https://www.redditstatus.com/">Reddit status</a> &middot;

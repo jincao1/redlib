@@ -566,7 +566,6 @@ pub struct ErrorTemplate {
 	pub reddit_url: String,
 	/// Show instance hosts how to get past Reddit's block.
 	pub blocked: bool,
-	pub obscura: bool,
 	pub prefs: Preferences,
 	pub url: String,
 }
@@ -1514,7 +1513,6 @@ pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, Stri
 			path.to_string()
 		},
 		blocked: crate::backends::is_blocked_error(msg),
-		obscura: cfg!(feature = "obscura"),
 		prefs: Preferences::new(&req),
 		url,
 	}
