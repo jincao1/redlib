@@ -162,7 +162,7 @@ async fn main() {
 				.long("address")
 				.value_name("ADDRESS")
 				.help("Sets address to listen on")
-				.default_value(setting_or("REDLIB_ADDRESS", "[::]"))
+				.default_value(setting_or("REDLIB_LISTEN_ADDRESS", "[::]"))
 				.num_args(1),
 		)
 		.arg(
@@ -172,7 +172,8 @@ async fn main() {
 				.value_name("PORT")
 				.env("PORT")
 				.help("Port to listen on")
-				.default_value(setting_or("REDLIB_PORT", "8080"))
+				.default_value(setting_or("REDLIB_LISTEN_PORT", "8080"))
+				.value_parser(clap::value_parser!(u16))
 				.action(ArgAction::Set)
 				.num_args(1),
 		)
@@ -202,7 +203,7 @@ async fn main() {
 	}
 
 	let address = matches.get_one::<String>("address").unwrap();
-	let port = matches.get_one::<String>("port").unwrap();
+	let port = matches.get_one::<u16>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
 
 	// `-4`/`-6` on the command line decide alone; otherwise the env names, then the settings.
@@ -219,7 +220,7 @@ async fn main() {
 	} else if ipv6_only {
 		format!("[::]:{port}")
 	} else {
-		[address, ":", port].concat()
+		format!("{address}:{port}")
 	};
 
 	println!("Starting Redlib...");
