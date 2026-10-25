@@ -16,6 +16,7 @@ pub mod scraped;
 
 use crate::config::get_setting;
 use crate::oauth::force_refresh_token;
+use crate::utils::param;
 use cached::proc_macro::cached;
 use log::{debug, error, info, warn};
 use serde_json::Value;
@@ -214,6 +215,17 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	fetch(path, quarantine).await.map(|(json, _)| json)
 }
 
+/// The backend whose "more comments" cursor `path` carries. Only that backend
+/// can load the batch the cursor points at, whatever the configured order.
+fn cursor_owner(path: &str) -> Option<&'static str> {
+	let query = format!("?{}", path.split_once('?')?.1);
+	param(&query, "more_cursor")?;
+	Some(match param(&query, "more_query") {
+		Some(query) if query == gql::MORE_QUERY => "gql",
+		_ => "scraped",
+	})
+}
+
 /// Fetches `path` from the first backend that serves it, and names that backend.
 #[cached(max_size = 100, ttl_secs = 30)]
 pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static str), String> {
@@ -221,7 +233,11 @@ pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static st
 	let mut blocked = false;
 	let mut last_error = None;
 
-	for backend in order(kind).iter().filter(|backend| backend.available() && backend.supports(kind)) {
+	let backends: Order = match cursor_owner(&path).filter(|_| kind == Kind::Comments) {
+		Some(owner) => BACKENDS.iter().copied().filter(|backend| backend.name() == owner).collect(),
+		None => order(kind).to_vec(),
+	};
+	for backend in backends.into_iter().filter(|backend| backend.available() && backend.supports(kind)) {
 		let error = match backend.fetch(&path, quarantine).await {
 			Ok(json) => return Ok((json, backend.name())),
 			Err(Failure::Unsupported) => {
@@ -343,6 +359,14 @@ mod tests {
 	/// `expected` without the backends this build doesn't have.
 	fn in_build<'a>(expected: &[&'a str]) -> Vec<&'a str> {
 		expected.iter().copied().filter(|name| BACKENDS.iter().any(|backend| backend.name() == *name)).collect()
+	}
+
+	#[test]
+	fn test_cursor_owner() {
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?sort=top&raw_json=1"), None);
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz&more_query=gql&raw_json=1"), Some("gql"));
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz&more_query=top&raw_json=1"), Some("scraped"));
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz"), Some("scraped"));
 	}
 
 	#[test]

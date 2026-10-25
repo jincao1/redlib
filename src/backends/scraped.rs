@@ -106,8 +106,6 @@ async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
 		cursor,
 		query: param(&query, "more_query").unwrap_or_default(),
 	});
-	// GraphQL cursors mean nothing to the scraper
-	let more = more.filter(|more| more.query != super::gql::MORE_QUERY);
 
 	let post = reddit_json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine).await?;
 	let Some(sub) = post["data"]["children"][0]["data"]["subreddit"].as_str() else {
