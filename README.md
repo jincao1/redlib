@@ -1,5 +1,7 @@
 # Redlib
 
+[![Container build](https://github.com/Nachtalb/redlib/actions/workflows/main-docker.yml/badge.svg?branch=main)](https://github.com/Nachtalb/redlib/actions/workflows/main-docker.yml) [![Lint](https://github.com/Nachtalb/redlib/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/Nachtalb/redlib/actions/workflows/lint.yml) [![ghcr.io](https://img.shields.io/badge/ghcr.io-nachtalb%2Fredlib-blue?logo=docker)](https://github.com/Nachtalb/redlib/pkgs/container/redlib) [![Last commit](https://img.shields.io/github/last-commit/Nachtalb/redlib/main)](https://github.com/Nachtalb/redlib/commits/main) [![Fork of redlib-org/redlib](https://img.shields.io/badge/fork%20of-redlib--org%2Fredlib-lightgrey?logo=github)](https://github.com/redlib-org/redlib) [![r.naa.gg](https://img.shields.io/endpoint?url=https://r.naa.gg/healthz/reddit.json&label=r.naa.gg)](https://r.naa.gg)
+
 > [!IMPORTANT]
 > **This is a fork of [redlib-org/redlib](https://github.com/redlib-org/redlib).**
 > It ships multi-arch images for amd64, 386, arm64, arm/v7 and arm/v6, and includes many features and fixes from unmerged upstream pull requests plus its own. See [FORK.md](FORK.md) for the full list of changes.
