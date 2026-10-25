@@ -11,6 +11,7 @@ This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) 
 | Base | Alpine | Distroless `static:nonroot`: static musl binary, no shell or package manager, runs as uid 65532, ~16 MB |
 | Tags | `latest` | `latest` (from `main`) and `sha-<short commit>`, plus `latest-obscura` and `sha-<short commit>-obscura` (amd64 only, ~76 MB) with the Obscura browser embedded |
 | Health check | Docker `HEALTHCHECK` with `wget /settings` | `GET /healthz` for the orchestrator to probe (the image has no `wget`) |
+| Binaries | Tarballs on versioned releases | The image's static binaries for all five platforms on the [`latest` release](https://github.com/Nachtalb/redlib/releases/latest), refreshed on every push to `main` ([#44](https://github.com/Nachtalb/redlib/issues/44)) |
 
 All platforms are cross-compiled natively on the build host and published under one multi-arch tag, so `docker pull` picks the right one.
 
@@ -19,7 +20,7 @@ docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest-obscura
 # docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
 ```
 
-No release binaries are published. Build from source with `cargo build --release`.
+Without Docker, download a binary from the [`latest` release](https://github.com/Nachtalb/redlib/releases/latest) or build from source with `cargo build --release`.
 
 ## Fixes
 
