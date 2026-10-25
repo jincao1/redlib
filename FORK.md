@@ -16,8 +16,7 @@ This fork is based on [redlib-org/redlib](https://github.com/redlib-org/redlib) 
 All platforms are cross-compiled natively on the build host and published under one multi-arch tag, so `docker pull` picks the right one.
 
 ```bash
-docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest-obscura
-# docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest  # not on amd64: use latest (no Obscura)
+docker run -d --name redlib -p 8080:8080 ghcr.io/nachtalb/redlib:latest
 ```
 
 Without Docker, download a binary from the [`latest` release](https://github.com/Nachtalb/redlib/releases/latest) or build from source with `cargo build --release`.
@@ -69,7 +68,7 @@ From upstream pull requests that are not merged upstream:
 - **Better RSS media**: images, galleries and videos render in RSS readers, and content is HTML-escaped ([redlib-org#572](https://github.com/redlib-org/redlib/pull/572)).
 - **Catppuccin themes**: Latte, Frappé, Macchiato and Mocha ([redlib-org#538](https://github.com/redlib-org/redlib/pull/538)).
 - **Download all images of a gallery** from the post page as individual files ([redlib-org#546](https://github.com/redlib-org/redlib/pull/546)). Needs JavaScript.
-- **Post pages without a Reddit session**: when Reddit blocks a thread and no session cookie gets through, the post comes from `/by_id` and the comments are scraped from the HTML Reddit serves logged-out visitors ([redlib-org#599](https://github.com/redlib-org/redlib/pull/599), used only as a fallback here). Turn it off with `REDLIB_ENABLE_SCRAPE_FALLBACK=off`. See [Scrape fallback](README.md#scrape-fallback).
+- **Post pages without a Reddit session**: the `scraped` backend takes the post from `/by_id` and scrapes the comments from the HTML Reddit serves logged-out visitors ([redlib-org#599](https://github.com/redlib-org/redlib/pull/599), used only as a fallback here). Turn it off with `REDLIB_ENABLE_SCRAPE_FALLBACK=off`. See [Scrape fallback](CONFIGURATION.md#scrape-fallback).
 
 From [Sparronator9999/redlib](https://github.com/Sparronator9999/redlib):
 
@@ -84,7 +83,7 @@ From [VictorVow1](https://github.com/VictorVow1) ([#16](https://github.com/Nacht
 
 From [0dragosh](https://github.com/0dragosh) ([patch](https://gist.github.com/0dragosh/6afe28f5e4f8659f5ae04ac2b418402b), [redlib-org#446](https://github.com/redlib-org/redlib/issues/446)):
 
-- **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. When a request is blocked, it is retried on `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. The cookie never shows on `/info` and is never logged. See [Reddit session](README.md#reddit-session).
+- **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. The `cookied-json` backend requests them from `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. The cookie never shows on `/info` and is never logged. See [Reddit session](CONFIGURATION.md#reddit-session).
 
 From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e)):
 
@@ -93,9 +92,9 @@ From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak
 Own features:
 
 - **More pages from GraphQL**: the same fallback also covers posts by ID, subreddit/popular/all listings, search, subreddit info and sidebar, and user pages (a user's overview is one merged page of posts and comments).
-- **Backend order**: every Reddit request tries a list of backends (anonymous JSON, session JSON, GraphQL, scraping, Obscura) in an order set per kind of request with `REDLIB_ENDPOINTS_<KIND>`. By default GraphQL goes first except for listings, wiki and duplicates. While running, backends that keep failing move down and ones that work move up; `/info` shows the current order. See [Backend order](README.md#backend-order).
+- **Backend order**: every Reddit request tries a list of backends (anonymous JSON, session JSON, GraphQL, scraping, Obscura) in an order set per kind of request with `REDLIB_ENDPOINTS_<KIND>`. By default GraphQL goes first except for listings, wiki and duplicates. While running, backends that keep failing move down and ones that work move up; `/info` shows the current order. See [Backend order](CONFIGURATION.md#backend-order).
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
-- **Requests go through a headless browser**: with a session set, every Reddit API request is fetched from `www.reddit.com` through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode: one request per page instead of an anonymous attempt followed by session retries. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds keep the plain HTTP client.
+- **Requests through a headless browser**: the `obscura-cookied-json` backend fetches Reddit's JSON from `www.reddit.com` with a session through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds don't have it.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
 - **Scraped comments load on demand**: a scraped post page shows Reddit's first batch of comments. "More comments" and "More replies" open a page with the next batch, one request to Reddit per click, with a link back to all comments. `REDLIB_SCRAPE_COMMENT_PREFETCH` loads more up front.
 - **"More replies" and "More comments" load in place**: the comments appear where the link was instead of opening another page. Without JavaScript the link opens the page as before.
@@ -133,7 +132,7 @@ Each has an instance default via `REDLIB_DEFAULT_<NAME>`:
 | Posts per page | `REDLIB_DEFAULT_POSTS_PER_PAGE` | `25` |
 | Max comment thread depth | `REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH` | `0` (unlimited) |
 
-All of them are documented in the README, `.env.example` and `app.json`.
+All of them are documented in [CONFIGURATION.md](CONFIGURATION.md), `.env.example` and `app.json`.
 
 ### Settings codes
 
@@ -182,7 +181,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **`%2fcomments` path encoding** of thread requests ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592), [#591](https://github.com/redlib-org/redlib/issues/591)): Reddit decodes the path before blocking it, so it only marked requests as coming from Redlib.
-- **Release binary, Rust test and pull-request workflows** are disabled (`*.disabled`). Only the container build and lint workflows run.
+- **Upstream's release binary and pull-request workflows** are disabled (`*.disabled`). The container build publishes the binaries, and Lint and Tests run on pull requests.
 
 ## Development
 
