@@ -44,7 +44,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Comment search had no submit button.**
 - **Large numbers** show as `10K` instead of `10.0K`.
 - **Comment collapse arrow** has a bigger touch area on mobile ([redlib-org#520](https://github.com/redlib-org/redlib/pull/520)).
-- **The Feeds dropdown didn't look clickable**: it kept the default cursor on hover; it now shows the pointer.
+- **Collapsibles didn't look clickable**: the Feeds dropdown, the `/info` score explanation, the settings "Why?" and the subreddit and sidebar toggles kept the default cursor on hover; they now show the pointer.
 - **LibreJS blocked scripts** without license tags (copy settings code, update check, highlighted comment). Every script now carries one ([redlib-org#410](https://github.com/redlib-org/redlib/pull/410), extended to all scripts).
 - **Search box focus outline** covers the whole search form, not just the input ([redlib-org#524](https://github.com/redlib-org/redlib/pull/524)).
 - **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on` ([#16](https://github.com/Nachtalb/redlib/pull/16)).
