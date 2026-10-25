@@ -166,6 +166,33 @@ pub struct Config {
 	#[serde(rename = "REDLIB_IPV6_ONLY")]
 	#[serde(skip_serializing)]
 	pub(crate) ipv6_only: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS")]
+	pub(crate) endpoints: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_POST")]
+	pub(crate) endpoints_post: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_COMMENTS")]
+	pub(crate) endpoints_comments: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_LISTING")]
+	pub(crate) endpoints_listing: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_SUBREDDIT")]
+	pub(crate) endpoints_subreddit: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_USER")]
+	pub(crate) endpoints_user: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_SEARCH")]
+	pub(crate) endpoints_search: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_WIKI")]
+	pub(crate) endpoints_wiki: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_DUPLICATES")]
+	pub(crate) endpoints_duplicates: Option<String>,
 }
 
 impl Config {
@@ -248,6 +275,15 @@ impl Config {
 			hsts: parse("REDLIB_HSTS"),
 			ipv4_only: parse("REDLIB_IPV4_ONLY"),
 			ipv6_only: parse("REDLIB_IPV6_ONLY"),
+			endpoints: parse("REDLIB_ENDPOINTS"),
+			endpoints_post: parse("REDLIB_ENDPOINTS_POST"),
+			endpoints_comments: parse("REDLIB_ENDPOINTS_COMMENTS"),
+			endpoints_listing: parse("REDLIB_ENDPOINTS_LISTING"),
+			endpoints_subreddit: parse("REDLIB_ENDPOINTS_SUBREDDIT"),
+			endpoints_user: parse("REDLIB_ENDPOINTS_USER"),
+			endpoints_search: parse("REDLIB_ENDPOINTS_SEARCH"),
+			endpoints_wiki: parse("REDLIB_ENDPOINTS_WIKI"),
+			endpoints_duplicates: parse("REDLIB_ENDPOINTS_DUPLICATES"),
 		}
 	}
 }
@@ -294,6 +330,15 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_HSTS" => config.hsts.clone(),
 		"REDLIB_IPV4_ONLY" => config.ipv4_only.clone(),
 		"REDLIB_IPV6_ONLY" => config.ipv6_only.clone(),
+		"REDLIB_ENDPOINTS" => config.endpoints.clone(),
+		"REDLIB_ENDPOINTS_POST" => config.endpoints_post.clone(),
+		"REDLIB_ENDPOINTS_COMMENTS" => config.endpoints_comments.clone(),
+		"REDLIB_ENDPOINTS_LISTING" => config.endpoints_listing.clone(),
+		"REDLIB_ENDPOINTS_SUBREDDIT" => config.endpoints_subreddit.clone(),
+		"REDLIB_ENDPOINTS_USER" => config.endpoints_user.clone(),
+		"REDLIB_ENDPOINTS_SEARCH" => config.endpoints_search.clone(),
+		"REDLIB_ENDPOINTS_WIKI" => config.endpoints_wiki.clone(),
+		"REDLIB_ENDPOINTS_DUPLICATES" => config.endpoints_duplicates.clone(),
 		_ => None,
 	}
 }

@@ -188,6 +188,8 @@ async fn main() {
 		)
 		.get_matches();
 
+	redlib::backends::log_orders();
+
 	match rate_limit_check().await {
 		Ok(()) => {
 			info!("[✅] Rate limit check passed");
