@@ -36,6 +36,10 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 		["search"] => search(path, None).await,
 		["r", sub, "search"] => search(path, Some(sub)).await,
 		["subreddits", "search"] => search_subreddits(path).await,
+		["user", name, "about"] => user_about(name).await,
+		["user", name, "submitted"] => user_posts(path, name).await,
+		["user", name, "comments"] => user_comments(path, name).await,
+		["user", name] | ["user", name, "overview"] => user_overview(path, name).await,
 		["r", "all", rest @ ..] => all(path, sort(rest)?).await,
 		["r", "popular", rest @ ..] => feed("PopularFeedElements", POPULAR_FEED_HASH, feed_variables(path, sort(rest)?), "/popular/elements").await,
 		["r", sub, rest @ ..] if !sub.contains('+') && !sub.contains("%2B") => {
@@ -270,15 +274,16 @@ fn feed_variables(path: &str, sort: &str) -> Value {
 /// A JSON API listing of the posts in a GraphQL connection (`edges` + `pageInfo`).
 fn post_listing(connection: &Value) -> Value {
 	let children: Vec<Value> = connection["edges"].as_array().into_iter().flatten().filter_map(|edge| post(&edge["node"])).collect();
-	let after = if connection["pageInfo"]["hasNextPage"] == false {
-		None
-	} else {
-		connection["pageInfo"]["endCursor"]
-			.as_str()
-			.and_then(|cursor| STANDARD.decode(cursor).ok())
-			.and_then(|after| String::from_utf8(after).ok())
-	};
-	json_value!({ "kind": "Listing", "data": { "after": after, "children": children } })
+	json_value!({ "kind": "Listing", "data": { "after": after(connection), "children": children } })
+}
+
+/// The JSON API's `after` of the next page of a GraphQL connection.
+fn after(connection: &Value) -> Option<String> {
+	if connection["pageInfo"]["hasNextPage"] == false {
+		return None;
+	}
+	let cursor = STANDARD.decode(connection["pageInfo"]["endCursor"].as_str()?).ok()?;
+	String::from_utf8(cursor).ok()
 }
 
 async fn feed(operation: &str, hash: &str, variables: Value, connection: &str) -> Result<Value, String> {
@@ -312,7 +317,7 @@ async fn all(path: &str, sort: &str) -> Result<Value, String> {
 		.filter(|id| id.starts_with("t3_"))
 		.collect();
 	let mut posts = Box::pin(posts_by_ids(ids)).await?;
-	posts["data"]["after"] = post_listing(elements)["data"]["after"].take();
+	posts["data"]["after"] = after(elements).into();
 	Ok(posts)
 }
 
@@ -484,6 +489,124 @@ async fn search_subreddits(path: &str) -> Result<Value, String> {
 		.as_array()
 		.ok_or("SearchCommunities returned no subreddits")?;
 	Ok(listing(communities.iter().filter_map(|edge| subreddit(&edge["node"])).collect()))
+}
+
+const PROFILE_HASH: &str = "096ccf5d943485822cb6d3e0dc13f9977da1984514e1d539e1ed38a51158e689";
+const SEARCH_PEOPLE_HASH: &str = "d9211ac33f72079f25cb4c8a8e00a2b4889e984f70278ec91283965c7856d33d";
+const USER_POSTS_HASH: &str = "78a213c02a340db4a707d4bcd375ce34f733b75893379603acb4ec20388fafe6";
+const USER_COMMENTS_HASH: &str = "e1b37f521fb40af2120946b70e7fbf6a3d924db2abaf28ff2164d4cfacca28db";
+const COMMENTS_BY_IDS_HASH: &str = "51ab9f2e0eb87b6dac9aac02012ba7046049e516ec55ec442abfed0f19c6f311";
+
+/// The profile only has the karma in search results.
+async fn user_about(name: &str) -> Result<Value, String> {
+	let (profile, people) = futures_lite::future::zip(
+		query("ProfileDetailsByName", PROFILE_HASH, &json_value!({ "profileName": name })),
+		query(
+			"SearchPeople",
+			SEARCH_PEOPLE_HASH,
+			&json_value!({ "query": name, "filters": [], "pageSize": 5, "productSurface": "" }),
+		),
+	)
+	.await;
+	let karma = people.ok().and_then(|people| {
+		let authors = people["data"]["search"]["general"]["authors"]["edges"].as_array()?.clone();
+		authors
+			.into_iter()
+			.find(|a| a["node"]["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+			.map(|a| a["node"]["karma"]["total"].clone())
+	});
+	user(&profile?["data"]["profileByName"], karma.unwrap_or_default()).ok_or_else(|| format!("u/{name} not found"))
+}
+
+/// Converts a GraphQL profile into a user of the JSON API (`about.json`).
+fn user(profile: &Value, karma: Value) -> Option<Value> {
+	let name = profile["name"].as_str()?;
+	Some(json_value!({ "kind": "t2", "data": {
+		"name": name.strip_prefix("u_").unwrap_or(name),
+		"created": timestamp(&profile["createdAt"]),
+		"total_karma": karma,
+		"subreddit": {
+			"title": profile["title"],
+			"icon_img": profile["styles"]["icon"],
+			"banner_img": profile["styles"]["legacyBannerBackgroundImage"],
+			"public_description": profile["publicDescriptionText"],
+			"over_18": profile["isNsfw"] == true,
+		},
+	} }))
+}
+
+fn profile_variables(path: &str) -> Value {
+	feed_variables(path, &param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "new".to_string()))
+}
+
+async fn user_posts(path: &str, name: &str) -> Result<Value, String> {
+	let mut variables = profile_variables(path);
+	variables["username"] = name.into();
+	variables["includeSubredditInPosts"] = true.into();
+	feed("UserSubmittedPosts", USER_POSTS_HASH, variables, "/postFeed/posts").await
+}
+
+/// The comments come without their content; `LiveCommentsByIds` fills it in.
+async fn user_comments(path: &str, name: &str) -> Result<Value, String> {
+	let mut variables = profile_variables(path);
+	variables["name"] = name.into();
+	let response = query("SubmittedComments", USER_COMMENTS_HASH, &variables).await?;
+	let connection = &response["data"]["redditorInfoByName"]["comments"];
+	let ids: Vec<&str> = connection["edges"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.filter_map(|edge| edge["node"]["id"].as_str())
+		.collect();
+	let full = query(
+		"LiveCommentsByIds",
+		COMMENTS_BY_IDS_HASH,
+		&json_value!({ "ids": ids, "includePremiumAvatarTreatment": false }),
+	)
+	.await?;
+	let children = user_comment_items(connection, &full["data"]["commentsByIds"]);
+	Ok(json_value!({ "kind": "Listing", "data": { "after": after(connection), "children": children } }))
+}
+
+/// JSON API comments of a user, from their `SubmittedComments` previews and full `LiveCommentsByIds` comments.
+fn user_comment_items(previews: &Value, full: &Value) -> Vec<Value> {
+	let full = full.as_array().map(Vec::as_slice).unwrap_or_default();
+	previews["edges"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.filter_map(|edge| {
+			let preview = &edge["node"];
+			let comment = full.iter().find(|c| c["id"] == preview["id"])?;
+			let (_, mut item) = item(&json_value!({ "depth": 0, "parentId": preview["postInfo"]["id"], "node": comment }), "")?;
+			let permalink = comment["permalink"].as_str().unwrap_or_default();
+			let subreddit = match permalink.split('/').nth(1) {
+				Some("r") => permalink.split('/').nth(2).unwrap_or_default().to_string(),
+				_ => format!("u_{}", permalink.split('/').nth(2).unwrap_or_default()),
+			};
+			item["data"]["link_title"] = preview["postInfo"]["title"].clone();
+			item["data"]["link_id"] = preview["postInfo"]["id"].clone();
+			item["data"]["permalink"] = permalink.into();
+			item["data"]["subreddit"] = subreddit.into();
+			Some(item)
+		})
+		.collect()
+}
+
+/// Posts and comments merged, newest first; one page only, as the two have separate cursors.
+async fn user_overview(path: &str, name: &str) -> Result<Value, String> {
+	let (posts, comments) = futures_lite::future::zip(user_posts(path, name), user_comments(path, name)).await;
+	let mut children: Vec<Value> = [posts?, comments?]
+		.into_iter()
+		.flat_map(|l| l["data"]["children"].as_array().cloned().unwrap_or_default())
+		.collect();
+	children.sort_by(|a, b| {
+		b["data"]["created_utc"]
+			.as_f64()
+			.unwrap_or_default()
+			.total_cmp(&a["data"]["created_utc"].as_f64().unwrap_or_default())
+	});
+	Ok(listing(children))
 }
 
 /// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
@@ -779,6 +902,26 @@ mod tests {
 		assert_eq!(subs.iter().map(|s| crate::utils::val(s, "display_name")).collect::<Vec<_>>(), ["rust", "playrust"]);
 		assert_eq!(crate::utils::val(&subs[0], "url"), "/r/rust/");
 		assert!(subs[0]["data"]["subscribers"].as_f64().is_some());
+	}
+
+	#[test]
+	fn test_user_fixtures() {
+		let about = user(&fixture("profile.json")["data"]["profileByName"], 941120.into()).unwrap();
+		assert_eq!(about["data"]["name"], "spez");
+		assert_eq!(about["data"]["total_karma"], 941120);
+		assert_eq!(about["data"]["subreddit"]["public_description"], "Reddit CEO");
+		assert!(about["data"]["created"].as_f64().unwrap() > 1.1e9);
+
+		let response = fixture("user_comments.json");
+		let comments = user_comment_items(&response["data"]["redditorInfoByName"]["comments"], &response["data"]["commentsByIds"]);
+		// Comments missing from `LiveCommentsByIds` are dropped
+		assert_eq!(comments.len(), 1);
+		let val = |key| crate::utils::val(&comments[0], key);
+		assert_eq!((val("id"), val("subreddit")), ("p1wosm9".to_string(), "u_spez".to_string()));
+		assert_eq!(comments[0]["kind"], "t1");
+		assert_eq!(val("link_title"), "Modernizing Reddit’s infrastructure with you");
+		assert!(val("body_html").contains("replicate the UI"));
+		assert!(val("permalink").ends_with("/p1wosm9/"));
 	}
 
 	#[test]

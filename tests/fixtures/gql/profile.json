@@ -1,0 +1,24 @@
+{
+  "data": {
+    "profileByName": {
+      "__typename": "Profile",
+      "name": "u_spez",
+      "createdAt": "2005-06-06T04:00:00.000000+0000",
+      "title": "spez",
+      "styles": {
+        "icon": "https://styles.redditmedia.com/t5_3k30p/styles/profileIcon_uj015iwx9s7g1.png?width=64&height=64&frame=1&auto=webp&crop=64:64,smart&s=0af32bd27feadee648af9434f5d8ffa782225a45",
+        "legacyBannerBackgroundImage": "https://b.thumbs.redditmedia.com/KWeEpVxXOGLoloMbM0IxGt9EiKPXizpwFgcSeWqtpZM.png",
+        "legacyIcon": {
+          "url": "https://styles.redditmedia.com/t5_3k30p/styles/profileIcon_uj015iwx9s7g1.png?width=256&height=256&frame=1&auto=webp&crop=256:256,smart&s=b3afd3e423e96bcdc7e3c49d60a60a50dc2903aa"
+        },
+        "legacyPrimaryColor": null
+      },
+      "publicDescriptionText": "Reddit CEO",
+      "isNsfw": false,
+      "id": "t5_3k30p"
+    }
+  },
+  "extensions": {
+    "traceID": "1a494f8efa3ed026c8f765fdac8c7cc6"
+  }
+}
