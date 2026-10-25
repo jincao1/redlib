@@ -103,6 +103,17 @@ async fn reddit_health() -> Result<Response<Body>, String> {
 	)
 }
 
+/// shields.io endpoint badge of the same status, always 200 so shields renders it.
+async fn reddit_badge() -> Result<Response<Body>, String> {
+	Ok(
+		Response::builder()
+			.header("content-type", "application/json")
+			.header("Cache-Control", "no-store")
+			.body(redlib::reddit_health::badge().into())
+			.unwrap_or_default(),
+	)
+}
+
 async fn style() -> Result<Response<Body>, String> {
 	let mut res = include_str!("../static/style.css").to_string();
 	for file in ThemeAssets::iter() {
@@ -234,6 +245,7 @@ async fn main() {
 
 	app.at("/healthz").get(|_| resource("ok", "text/plain", false).boxed());
 	app.at("/healthz/reddit").get(|_| reddit_health().boxed());
+	app.at("/healthz/reddit.json").get(|_| reddit_badge().boxed());
 
 	// Read static files
 	app.at("/style.css").get(|_| style().boxed());
