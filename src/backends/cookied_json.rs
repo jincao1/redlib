@@ -23,6 +23,10 @@ impl Backend for CookiedJson {
 		true
 	}
 
+	fn cost(&self) -> f64 {
+		2.0
+	}
+
 	fn fetch<'a>(&'a self, path: &'a str, _quarantine: bool) -> Fetch<'a> {
 		Box::pin(fetch(path))
 	}
