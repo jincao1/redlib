@@ -392,7 +392,7 @@ REDLIB_DEFAULT_USE_HLS = "on"
 REDLIB_SCRAPE_COMMENT_PREFETCH = 0
 ```
 
-Numbers and booleans work as well as strings; `true`/`false` mean `on`/`off`. The port is not read from the file; set it with the `PORT` environment variable or `-p`.
+Numbers and booleans work as well as strings; `true`/`false` mean `on`/`off`.
 
 > [!NOTE]
 > If you're deploying Redlib using the **Docker CLI or Docker Compose**, environment variables can be defined in a [`.env` file](https://docs.docker.com/compose/environment-variables/set-environment-variables/), allowing you to centralize and manage configuration in one place.
@@ -439,6 +439,11 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_GQL`              | `["on", "off"]` | `on`                                   | Loads pages Reddit blocks from its GraphQL API, before trying session cookies and scraping. |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `PORT`                    | Integer         | `8080`                                 | Port to listen on. `-p` and the `PORT` environment variable take precedence. |
+| `ADDRESS`                 | String          | `[::]`                                 | Address to listen on. `-a` takes precedence. |
+| `HSTS`                    | Integer         | `604800`                               | `max-age` of the HSTS header in seconds. `-H` takes precedence. |
+| `IPV4_ONLY`               | `["on", "off"]` | `off`                                  | Listens on IPv4 only, like `-4` or `IPV4_ONLY`. |
+| `IPV6_ONLY`               | `["on", "off"]` | `off`                                  | Listens on IPv6 only, like `-6` or `IPV6_ONLY`. |
 
 ### Reddit session
 

@@ -145,6 +145,27 @@ pub struct Config {
 	#[serde(rename = "REDLIB_REDDIT_COOKIE")]
 	#[serde(skip_serializing)]
 	pub(crate) reddit_cookie: Option<String>,
+
+	/// Listener settings; `main` reads them, `/info` doesn't show them.
+	#[serde(rename = "REDLIB_PORT")]
+	#[serde(skip_serializing)]
+	pub(crate) port: Option<String>,
+
+	#[serde(rename = "REDLIB_ADDRESS")]
+	#[serde(skip_serializing)]
+	pub(crate) address: Option<String>,
+
+	#[serde(rename = "REDLIB_HSTS")]
+	#[serde(skip_serializing)]
+	pub(crate) hsts: Option<String>,
+
+	#[serde(rename = "REDLIB_IPV4_ONLY")]
+	#[serde(skip_serializing)]
+	pub(crate) ipv4_only: Option<String>,
+
+	#[serde(rename = "REDLIB_IPV6_ONLY")]
+	#[serde(skip_serializing)]
+	pub(crate) ipv6_only: Option<String>,
 }
 
 impl Config {
@@ -222,6 +243,11 @@ impl Config {
 			default_posts_per_page: parse("REDLIB_DEFAULT_POSTS_PER_PAGE"),
 			default_max_comment_thread_depth: parse("REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH"),
 			reddit_cookie: parse("REDLIB_REDDIT_COOKIE"),
+			port: parse("REDLIB_PORT"),
+			address: parse("REDLIB_ADDRESS"),
+			hsts: parse("REDLIB_HSTS"),
+			ipv4_only: parse("REDLIB_IPV4_ONLY"),
+			ipv6_only: parse("REDLIB_IPV6_ONLY"),
 		}
 	}
 }
@@ -263,6 +289,11 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_POSTS_PER_PAGE" => config.default_posts_per_page.clone(),
 		"REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH" => config.default_max_comment_thread_depth.clone(),
 		"REDLIB_REDDIT_COOKIE" => config.reddit_cookie.clone(),
+		"REDLIB_PORT" => config.port.clone(),
+		"REDLIB_ADDRESS" => config.address.clone(),
+		"REDLIB_HSTS" => config.hsts.clone(),
+		"REDLIB_IPV4_ONLY" => config.ipv4_only.clone(),
+		"REDLIB_IPV6_ONLY" => config.ipv6_only.clone(),
 		_ => None,
 	}
 }
@@ -389,6 +420,16 @@ mod tests {
 	fn test_invalid_file_falls_back_to_defaults() {
 		write("redlib.toml", "REDLIB_DEFAULT_THEME = dark").unwrap();
 		assert_eq!(get_setting("REDLIB_DEFAULT_THEME"), None);
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_listener_settings_from_file() {
+		write("redlib.toml", "REDLIB_PORT = 8085\nREDLIB_ADDRESS = \"127.0.0.1\"\nREDLIB_IPV4_ONLY = true").unwrap();
+		assert_eq!(get_setting("REDLIB_PORT"), Some("8085".into()));
+		assert_eq!(get_setting("REDLIB_ADDRESS"), Some("127.0.0.1".into()));
+		assert_eq!(get_setting("REDLIB_IPV4_ONLY"), Some("on".into()));
+		assert!(!toml::to_string(&*CONFIG).unwrap().contains("8085"), "listener settings must not show in /info");
 	}
 
 	#[test]

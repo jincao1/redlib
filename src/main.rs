@@ -139,6 +139,11 @@ async fn main() {
 	// Initialize logger
 	pretty_env_logger::init();
 
+	// The listener settings can also come from `REDLIB_*` settings (env or
+	// redlib.toml); the flags and the older env names take precedence.
+	let setting_or = |key: &str, default: &str| -> &'static str { config::get_setting(key).unwrap_or_else(|| default.to_string()).leak() };
+	let setting_on = |key: &str| config::get_setting(key).as_deref() == Some("on");
+
 	let matches = Command::new("Redlib")
 		.version(env!("CARGO_PKG_VERSION"))
 		.about("Private front-end for Reddit written in Rust ")
@@ -157,7 +162,7 @@ async fn main() {
 				.long("address")
 				.value_name("ADDRESS")
 				.help("Sets address to listen on")
-				.default_value("[::]")
+				.default_value(setting_or("REDLIB_ADDRESS", "[::]"))
 				.num_args(1),
 		)
 		.arg(
@@ -167,7 +172,7 @@ async fn main() {
 				.value_name("PORT")
 				.env("PORT")
 				.help("Port to listen on")
-				.default_value("8080")
+				.default_value(setting_or("REDLIB_PORT", "8080"))
 				.action(ArgAction::Set)
 				.num_args(1),
 		)
@@ -177,7 +182,7 @@ async fn main() {
 				.long("hsts")
 				.value_name("EXPIRE_TIME")
 				.help("HSTS header to tell browsers that this site should only be accessed over HTTPS")
-				.default_value("604800")
+				.default_value(setting_or("REDLIB_HSTS", "604800"))
 				.num_args(1),
 		)
 		.get_matches();
@@ -200,8 +205,14 @@ async fn main() {
 	let port = matches.get_one::<String>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
 
-	let ipv4_only = std::env::var("IPV4_ONLY").is_ok() || matches.get_flag("ipv4-only");
-	let ipv6_only = std::env::var("IPV6_ONLY").is_ok() || matches.get_flag("ipv6-only");
+	// `-4`/`-6` on the command line decide alone; otherwise the env names, then the settings.
+	let (ipv4_only, ipv6_only) = match (matches.get_flag("ipv4-only"), matches.get_flag("ipv6-only")) {
+		(false, false) => (
+			std::env::var("IPV4_ONLY").is_ok() || setting_on("REDLIB_IPV4_ONLY"),
+			std::env::var("IPV6_ONLY").is_ok() || setting_on("REDLIB_IPV6_ONLY"),
+		),
+		flags => flags,
+	};
 
 	let listener = if ipv4_only {
 		format!("0.0.0.0:{port}")
