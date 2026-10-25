@@ -7,6 +7,7 @@
 
 use crate::client::{json as reddit_json, CLIENT, OAUTH_CLIENT};
 use crate::utils::{format_url, param};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
 use log::debug;
 use serde_json::{json as json_value, Value};
@@ -28,7 +29,19 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	if route.contains("/comments/") {
 		return Some(thread(path, quarantine).await);
 	}
-	None
+	let segments: Vec<&str> = route.trim_end_matches(".json").split('/').filter(|s| !s.is_empty()).collect();
+	Some(match segments.as_slice() {
+		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
+		["r", "all", rest @ ..] => all(path, sort(rest)?).await,
+		["r", "popular", rest @ ..] => feed("PopularFeedElements", POPULAR_FEED_HASH, feed_variables(path, sort(rest)?), "/popular/elements").await,
+		["r", sub, rest @ ..] if !sub.contains('+') && !sub.contains("%2B") => {
+			let mut variables = feed_variables(path, sort(rest)?);
+			variables["subredditName"] = (*sub).into();
+			variables["includeSubredditInPosts"] = true.into();
+			feed("SubredditFeedElements", SUBREDDIT_FEED_HASH, variables, "/postFeed/elements").await
+		}
+		_ => return None,
+	})
 }
 
 /// Builds a `/comments/` JSON response for `path` (a `/comments/` API path, as
@@ -165,21 +178,7 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	};
 
 	let flair = &node["authorFlair"];
-	let flair_richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
-	let flair_type = if flair_richtext.as_array().is_some_and(|r| !r.is_empty()) {
-		"richtext"
-	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
-		"text"
-	} else {
-		""
-	};
-
-	let awards: Vec<Value> = node["awardings"]
-		.as_array()
-		.into_iter()
-		.flatten()
-		.map(|a| json_value!({ "name": a["award"]["name"], "count": a["total"], "resized_icons": [{ "url": a["award"]["static_icon_16"]["url"] }] }))
-		.collect();
+	let (flair_type, flair_richtext) = flair_parts(flair);
 
 	Some((
 		depth,
@@ -202,12 +201,216 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 				"author_flair_text": flair["text"],
 				"author_flair_background_color": flair["template"]["backgroundColor"],
 				"author_flair_text_color": flair["textColor"].as_str().map(str::to_lowercase),
-				"all_awardings": awards,
+				"all_awardings": awards(node),
 				"parent_id": parent,
 				"replies": "",
 			}
 		}),
 	))
+}
+
+/// The JSON API's `*_flair_type` and `*_flair_richtext` of a flair.
+fn flair_parts(flair: &Value) -> (&'static str, Value) {
+	let richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	let kind = if richtext.as_array().is_some_and(|r| !r.is_empty()) {
+		"richtext"
+	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
+		"text"
+	} else {
+		""
+	};
+	(kind, richtext)
+}
+
+fn awards(node: &Value) -> Vec<Value> {
+	node["awardings"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.map(|a| json_value!({ "name": a["award"]["name"], "count": a["total"], "resized_icons": [{ "url": a["award"]["static_icon_16"]["url"] }] }))
+		.collect()
+}
+
+const POSTS_BY_IDS_HASH: &str = "0e471495bcba33554b6c540b3cf1cae23dd5432a8b741dddc7fd6717dc2520a7";
+const SUBREDDIT_FEED_HASH: &str = "97046e2a48050f10a507db354a8da60955ffccb586dcf63163bdfc6610d5cf7a";
+const POPULAR_FEED_HASH: &str = "728c0f9a4d12c17b8cffe07669bb1a8770b0f2ec0c84e040485f8fad2d9c417f";
+const ALL_FEED_HASH: &str = "0e9c0045dd244e934efd0ea4fefc00cb0b4d91523e2f09c8af075856cb59b937";
+const SORTS: [&str; 6] = ["hot", "new", "top", "rising", "controversial", "best"];
+
+/// The listing sort of the path segments after `/r/<sub>`, if they are one.
+fn sort<'a>(rest: &[&'a str]) -> Option<&'a str> {
+	match rest {
+		[] => Some("hot"),
+		[sort] if SORTS.contains(sort) => Some(sort),
+		_ => None,
+	}
+}
+
+/// Variables of a post feed query for the listing `path`.
+fn feed_variables(path: &str, sort: &str) -> Value {
+	let sort = sort.to_uppercase();
+	let mut variables = json_value!({
+		"sort": sort,
+		"pageSize": param(path, "limit").and_then(|l| l.parse::<u32>().ok()).unwrap_or(25),
+	});
+	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && (sort == "TOP" || sort == "CONTROVERSIAL")) {
+		variables["range"] = range.to_uppercase().into();
+	}
+	// Feed cursors are the base64 of the JSON API's `after`
+	if let Some(after) = param(path, "after").filter(|a| !a.is_empty()) {
+		variables["after"] = STANDARD.encode(after).into();
+	}
+	variables
+}
+
+/// A JSON API listing of the posts in a GraphQL connection (`edges` + `pageInfo`).
+fn post_listing(connection: &Value) -> Value {
+	let children: Vec<Value> = connection["edges"].as_array().into_iter().flatten().filter_map(|edge| post(&edge["node"])).collect();
+	let after = if connection["pageInfo"]["hasNextPage"] == false {
+		None
+	} else {
+		connection["pageInfo"]["endCursor"]
+			.as_str()
+			.and_then(|cursor| STANDARD.decode(cursor).ok())
+			.and_then(|after| String::from_utf8(after).ok())
+	};
+	json_value!({ "kind": "Listing", "data": { "after": after, "children": children } })
+}
+
+async fn feed(operation: &str, hash: &str, variables: Value, connection: &str) -> Result<Value, String> {
+	let response = query(operation, hash, &variables).await?;
+	let connection = response["data"].pointer(connection).ok_or_else(|| format!("{operation} returned no posts"))?;
+	Ok(post_listing(connection))
+}
+
+async fn posts_by_ids(ids: Vec<&str>) -> Result<Value, String> {
+	let variables = json_value!({ "ids": ids, "includePostContentPostHint": true, "includePostContentThumbnailEnabled": true });
+	let response = query("PostsByIds", POSTS_BY_IDS_HASH, &variables).await?;
+	let posts = response["data"]["postsInfoByIds"].as_array().ok_or("PostsByIds returned no posts")?;
+	Ok(listing(posts.iter().filter_map(post).collect()))
+}
+
+/// r/all only returns the IDs of its posts.
+async fn all(path: &str, sort: &str) -> Result<Value, String> {
+	let mut variables = feed_variables(path, sort);
+	variables["time"] = variables["range"].take();
+	if let Some(variables) = variables.as_object_mut() {
+		variables.remove("range");
+		variables.remove("pageSize");
+	}
+	let response = query("AllFeedSdui", ALL_FEED_HASH, &variables).await?;
+	let elements = &response["data"]["allV3"]["elements"];
+	let ids: Vec<&str> = elements["edges"]
+		.as_array()
+		.into_iter()
+		.flatten()
+		.filter_map(|edge| edge["node"]["groupId"].as_str())
+		.filter(|id| id.starts_with("t3_"))
+		.collect();
+	let mut posts = Box::pin(posts_by_ids(ids)).await?;
+	posts["data"]["after"] = post_listing(elements)["data"]["after"].take();
+	Ok(posts)
+}
+
+/// Converts a GraphQL post into a post of the JSON API.
+fn post(node: &Value) -> Option<Value> {
+	let node = if node["postInfo"].is_object() { &node["postInfo"] } else { node };
+	if !matches!(node["__typename"].as_str(), Some("SubredditPost" | "ProfilePost")) {
+		return None;
+	}
+	let fullname = node["id"].as_str()?;
+	let content = &node["content"];
+	let richtext: Value = content["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	let (flair_type, flair_richtext) = flair_parts(&node["flair"]);
+	let (author_flair_type, author_flair_richtext) = flair_parts(&node["authorFlair"]);
+	let thumbnail = if node["isThumbnailEnabled"] == false { &Value::Null } else { &node["thumbnail"] };
+
+	let mut data = json_value!({
+		"id": fullname.strip_prefix("t3_").unwrap_or(fullname),
+		"name": fullname,
+		"title": node["title"],
+		"author": node["authorInfo"]["name"].as_str().unwrap_or("[deleted]"),
+		"author_flair_type": author_flair_type,
+		"author_flair_richtext": author_flair_richtext,
+		"author_flair_text": node["authorFlair"]["text"],
+		"author_flair_background_color": node["authorFlair"]["template"]["backgroundColor"],
+		"author_flair_text_color": node["authorFlair"]["textColor"].as_str().map(str::to_lowercase),
+		"subreddit": node["subreddit"]["name"],
+		"subreddit_name_prefixed": node["subreddit"]["prefixedName"],
+		"permalink": node["permalink"],
+		"url": node["url"],
+		"domain": node["domain"],
+		"is_self": node["isSelfPost"] == true,
+		"selftext": content["markdown"].as_str().unwrap_or_default(),
+		"selftext_html": if content.is_object() { format!("<div class=\"md\">{}</div>", render(&richtext["document"], &content["richtextMedia"])) } else { String::new() },
+		"score": node["score"],
+		"upvote_ratio": node["upvoteRatio"],
+		"num_comments": node["commentCount"],
+		"created_utc": timestamp(&node["createdAt"]).unwrap_or_default(),
+		"edited": timestamp(&node["editedAt"]).map_or(Value::Bool(false), Value::from),
+		"over_18": node["isNsfw"] == true,
+		"spoiler": node["isSpoiler"] == true,
+		"stickied": node["isStickied"] == true,
+		"locked": node["isLocked"] == true,
+		"archived": node["isArchived"] == true,
+		"hide_score": node["isScoreHidden"] == true,
+		"distinguished": node["distinguishedAs"].as_str().map(str::to_lowercase),
+		"removed_by_category": node["removedByCategory"].as_str().map(str::to_lowercase),
+		"link_flair_type": flair_type,
+		"link_flair_richtext": flair_richtext,
+		"link_flair_text": node["flair"]["text"],
+		"link_flair_background_color": node["flair"]["template"]["backgroundColor"],
+		"link_flair_text_color": node["flair"]["textColor"].as_str().map(str::to_lowercase),
+		"thumbnail": thumbnail["url"].as_str().unwrap_or_default(),
+		"thumbnail_width": thumbnail["dimensions"]["width"],
+		"thumbnail_height": thumbnail["dimensions"]["height"],
+		"post_hint": node["postHint"].as_str().map(|hint| hint.to_lowercase().replace('_', ":")),
+		"all_awardings": awards(node),
+	});
+	if node["isSelfPost"] != true {
+		data["url_overridden_by_dest"] = node["url"].clone();
+	}
+
+	let still = &node["media"]["still"]["source"];
+	if still.is_object() {
+		data["preview"] = json_value!({ "images": [{ "source": { "url": still["url"], "width": still["dimensions"]["width"], "height": still["dimensions"]["height"] } }] });
+	}
+
+	let streaming = &node["media"]["streaming"];
+	if let Some(hls_url) = streaming["hlsUrl"].as_str() {
+		data["secure_media"] = json_value!({ "reddit_video": { "fallback_url": video_fallback_url(node, streaming), "hls_url": hls_url, "is_gif": streaming["isGif"] == true } });
+	}
+
+	if let Some(items) = node["gallery"]["items"].as_array() {
+		data["is_gallery"] = true.into();
+		data["gallery_data"] = json_value!({ "items": items.iter().map(|item| json_value!({ "media_id": item["media"]["id"], "caption": item["caption"], "outbound_url": item["outboundUrl"] })).collect::<Vec<_>>() });
+		data["media_metadata"] = items
+			.iter()
+			.map(|item| {
+				let m = &item["media"];
+				let gif = if m["mimetype"] == "image/gif" { m["url"].clone() } else { Value::Null };
+				(
+					m["id"].as_str().unwrap_or_default().to_string(),
+					json_value!({ "m": m["mimetype"], "s": { "u": m["url"], "gif": gif, "x": m["width"], "y": m["height"] } }),
+				)
+			})
+			.collect::<serde_json::Map<_, _>>()
+			.into();
+	}
+
+	if let Some(parent) = post(&node["crosspostRoot"]["post"]) {
+		data["crosspost_parent_list"] = json_value!([parent["data"]]);
+	}
+
+	Some(json_value!({ "kind": "t3", "data": data }))
+}
+
+/// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
+fn video_fallback_url(node: &Value, streaming: &Value) -> String {
+	let dimensions = &streaming["dimensions"];
+	let size = dimensions["width"].as_u64().unwrap_or_default().min(dimensions["height"].as_u64().unwrap_or_default());
+	let rendition = [1080, 720, 480, 360, 240].into_iter().find(|r| *r <= size).unwrap_or(240);
+	format!("{}/CMAF_{rendition}.mp4?source=fallback", node["url"].as_str().unwrap_or_default().trim_end_matches('/'))
 }
 
 fn timestamp(value: &Value) -> Option<f64> {
@@ -436,5 +639,50 @@ mod tests {
 		assert_eq!((more.kind.as_str(), more.parent_kind.as_str()), ("more", "t3"));
 		assert!(more.more_href.contains("more_query=gql"));
 		assert_eq!(more.more_count, 478);
+	}
+
+	fn fixture(name: &str) -> Value {
+		serde_json::from_str(&std::fs::read_to_string(format!("{}/tests/fixtures/gql/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap()
+	}
+
+	#[tokio::test]
+	async fn test_subreddit_feed_fixture() {
+		let listing = post_listing(&fixture("subreddit_feed.json")["data"]["postFeed"]["elements"]);
+		assert_eq!(listing["data"]["after"], "t3_1xdtpdg");
+		let children = listing["data"]["children"].as_array().unwrap();
+		// The recommendation unit is not a post
+		assert_eq!(children.len(), 4);
+
+		let link = crate::utils::parse_post(&children[0]).await;
+		assert_eq!(
+			(link.title.as_str(), link.community.as_str(), link.post_type.as_str()),
+			("This Week in Rust #674", "rust", "link")
+		);
+		assert!(link.flags.stickied);
+		assert_eq!(link.flair.flair_parts.len(), 1);
+		let text = crate::utils::parse_post(&children[2]).await;
+		assert_eq!(text.post_type, "self");
+		assert!(text.body.starts_with("<div class=\"md\"><p>"));
+		let image = crate::utils::parse_post(&children[3]).await;
+		assert_eq!((image.post_type.as_str(), image.media.url.as_str()), ("image", "/img/lhwr9uf5bkxh1.png"));
+	}
+
+	#[tokio::test]
+	async fn test_posts_by_ids_fixture() {
+		let posts = fixture("posts_by_ids.json")["data"]["postsInfoByIds"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter_map(post)
+			.collect::<Vec<_>>();
+		assert_eq!(posts.len(), 3);
+
+		let video = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(video.post_type, "video");
+		assert_eq!(video.media.url, "/vid/apxzua5q5ixh1/CMAF/720.mp4");
+		assert!(video.media.alt_url.starts_with("/hls/apxzua5q5ixh1/HLSPlaylist.m3u8"));
+		let gallery = crate::utils::parse_post(&posts[1]).await;
+		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
+		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
 	}
 }
