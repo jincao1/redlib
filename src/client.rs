@@ -11,11 +11,13 @@ use futures_lite::{future::Boxed, FutureExt};
 use hyper::{header, Request as HyperRequest, Response as HyperResponse};
 use log::{info, warn};
 use percent_encoding::{percent_encode, CONTROLS};
+use std::net::SocketAddr;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wreq::dns::{Addrs, GaiResolver, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
 use wreq_util::{Emulation, Platform, Profile};
@@ -115,8 +117,40 @@ pub fn build_client() -> WreqClient {
 	WreqClient::builder()
 		.emulation(emulation)
 		.redirect(Policy::none())
+		.dns_resolver(RedgifsIpv4Resolver(GaiResolver::new()))
 		.build()
 		.expect("Should always be able to build a client")
+}
+
+/// Set at startup when Redlib runs IPv6-only.
+pub static IPV6_ONLY: AtomicBool = AtomicBool::new(false);
+
+/// RedGifs binds its API token to the IP that fetched it, and a dual-stack host
+/// can connect over either IPv4 or IPv6. RedGifs hosts therefore resolve to IPv4
+/// only, unless Redlib runs IPv6-only or there is no IPv4 address.
+struct RedgifsIpv4Resolver(GaiResolver);
+
+impl Resolve for RedgifsIpv4Resolver {
+	fn resolve(&self, name: Name) -> Resolving {
+		let pin = !IPV6_ONLY.load(Ordering::Relaxed) && crate::redgifs::is_redgifs_domain(name.as_str());
+		let lookup = self.0.resolve(name);
+		Box::pin(async move {
+			let addrs = lookup.await?;
+			if !pin {
+				return Ok(addrs);
+			}
+			Ok(Box::new(prefer_ipv4(addrs.collect()).into_iter()) as Addrs)
+		})
+	}
+}
+
+fn prefer_ipv4(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+	let v4: Vec<SocketAddr> = addrs.iter().copied().filter(SocketAddr::is_ipv4).collect();
+	if v4.is_empty() {
+		addrs
+	} else {
+		v4
+	}
 }
 
 /// Switches `CLIENT` to another browser emulation, at most once per
@@ -129,6 +163,7 @@ pub(crate) fn reroll_client() -> bool {
 	}
 	warn!("Reddit refused every session, switching the browser emulation");
 	CLIENT.store(Arc::new(build_client()));
+	crate::redgifs::clear_token();
 	true
 }
 
@@ -493,6 +528,14 @@ impl IntoHyperResponse for WreqResponse {
 mod tests {
 	use super::*;
 	use {crate::config::get_setting, sealed_test::prelude::*};
+
+	#[test]
+	fn test_prefer_ipv4_keeps_ipv6_without_ipv4() {
+		let v4: SocketAddr = "104.18.36.123:443".parse().unwrap();
+		let v6: SocketAddr = "[2606:4700:440a::ac40:9785]:443".parse().unwrap();
+		assert_eq!(prefer_ipv4(vec![v6, v4]), vec![v4]);
+		assert_eq!(prefer_ipv4(vec![v6]), vec![v6]);
+	}
 
 	#[test]
 	fn test_cookie_is_trimmed_and_kept_intact() {
