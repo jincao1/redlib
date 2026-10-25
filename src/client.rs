@@ -533,7 +533,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	// Reddit ignores the quarantine opt-in cookie for logged-in sessions, so
 	// subreddits the visitor opted into are fetched the anonymous way below.
 	#[cfg(feature = "obscura")]
-	if crate::obscura_client::enabled() {
+	if crate::backends::obscura::enabled() {
 		match web_json(&path).await {
 			Err(e) if quarantine && (e == "quarantined" || e == "gated") => {}
 			Err(e) if is_blocked_error(&e) => return gql_fallback(&path, quarantine).await.ok_or(e),
@@ -661,7 +661,7 @@ async fn gql_fallback(path: &str, quarantine: bool) -> Option<Value> {
 	if !enable_gql() {
 		return None;
 	}
-	match Box::pin(crate::gql::json(path, quarantine)).await? {
+	match Box::pin(crate::backends::gql::json(path, quarantine)).await? {
 		Ok(json) => Some(json),
 		Err(e) => {
 			warn!("GraphQL fallback failed for {path}: {e}");
@@ -691,7 +691,7 @@ async fn web_session_get(path: &str, sessions: &[(usize, String)]) -> Option<Wre
 /// Fetches `path` from Reddit's web host through Obscura as a logged-in session.
 #[cfg(feature = "obscura")]
 async fn web_json(path: &str) -> Result<Value, String> {
-	let (status, body) = crate::obscura_client::get(path)
+	let (status, body) = crate::backends::obscura::get(path)
 		.await
 		.map_err(|e| format!("Couldn't send request to Reddit: {e} | {path}"))?;
 	match serde_json::from_slice(&body) {

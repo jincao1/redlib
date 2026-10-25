@@ -1,10 +1,10 @@
 #![allow(clippy::cmp_owned)]
+use crate::backends::scraped::{self as shreddit, More};
 use crate::body::Body;
 use crate::client::{is_blocked_error, json};
 use crate::config::get_setting;
 use crate::reddit_health::{self, Outcome};
 use crate::server::RequestExt;
-use crate::shreddit::{self, More};
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
 	build_rss_comment_item, build_rss_item, clean_url, enable_rss, enable_scrape_fallback, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes,
@@ -80,7 +80,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	});
 	let more_page = more.is_some();
 	// GraphQL cursors mean nothing to the scraper
-	let more = more.filter(|more| more.query != crate::gql::MORE_QUERY);
+	let more = more.filter(|more| more.query != crate::backends::gql::MORE_QUERY);
 
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);

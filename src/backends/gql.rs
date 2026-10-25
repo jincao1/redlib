@@ -868,7 +868,7 @@ mod tests {
 
 	#[test]
 	fn test_post_comments_fixture() {
-		let response: Value = serde_json::from_str(include_str!("../tests/fixtures/gql/post_comments.json")).unwrap();
+		let response: Value = serde_json::from_str(include_str!("../../tests/fixtures/gql/post_comments.json")).unwrap();
 		let tree = listing(comment_tree(&response, "1xe5jpg").unwrap());
 		let comments = crate::post::parse_comments(&tree, "/r/AskReddit/comments/1xe5jpg/x/", "op", "", &Default::default(), &request());
 
