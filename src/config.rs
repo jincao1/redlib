@@ -148,13 +148,31 @@ pub struct Config {
 }
 
 impl Config {
+	/// Parses a config file. Every setting is a string, so numbers are read as
+	/// text and booleans as `on`/`off`.
+	fn parse_file(file: &str) -> Result<Self, toml::de::Error> {
+		let table: toml::Table = file.parse()?;
+		let table = table
+			.into_iter()
+			.map(|(key, value)| {
+				let value = match value {
+					toml::Value::String(s) => s,
+					toml::Value::Boolean(b) => if b { "on" } else { "off" }.to_string(),
+					other => other.to_string(),
+				};
+				(key, toml::Value::String(value))
+			})
+			.collect();
+		toml::Value::Table(table).try_into()
+	}
+
 	/// Load the configuration from the environment variables and the config file.
 	/// In the case that there are no environment variables set and there is no
 	/// config file, this function returns a Config that contains all None values.
 	pub fn load() -> Self {
 		let load_config = |name: &str| {
-			let new_file = read_to_string(name);
-			new_file.ok().and_then(|new_file| toml::from_str::<Self>(&new_file).ok())
+			let file = read_to_string(name).ok()?;
+			Self::parse_file(&file).map_err(|e| log::error!("Ignoring {name}, it isn't valid: {e}")).ok()
 		};
 
 		let config = load_config("redlib.toml").or_else(|| load_config("libreddit.toml")).unwrap_or_default();
@@ -264,6 +282,123 @@ mod tests {
 		// Must handle empty input
 		let result = toml::from_str::<Config>("");
 		assert!(result.is_ok(), "Error: {}", result.unwrap_err());
+	}
+
+	/// Every `#[serde(<kind> = "...")]` name in this file, so new settings are covered automatically.
+	fn serde_names(kind: &str) -> Vec<String> {
+		let marker = format!("#[serde({kind} = \"");
+		include_str!("config.rs")
+			.lines()
+			.filter_map(|line| line.trim().strip_prefix(marker.as_str())?.strip_suffix("\")]").map(str::to_string))
+			.collect()
+	}
+
+	fn parsed(file: &str) -> Config {
+		Config::parse_file(file).unwrap_or_else(|e| panic!("{file:?} didn't parse: {e}"))
+	}
+
+	#[test]
+	fn test_every_setting_reads_every_value_type() {
+		let keys = serde_names("rename");
+		assert!(keys.len() > 30, "found only {} settings", keys.len());
+		for key in &keys {
+			for (value, expected) in [
+				("\"text\"", "text"),
+				("\"\"", ""),
+				("7", "7"),
+				("-1", "-1"),
+				("1.5", "1.5"),
+				("true", "on"),
+				("false", "off"),
+			] {
+				let config = parsed(&format!("{key} = {value}"));
+				assert_eq!(get_setting_from_config(key, &config).as_deref(), Some(expected), "{key} = {value}");
+			}
+		}
+	}
+
+	#[test]
+	fn test_every_legacy_name_reads_into_its_setting() {
+		let aliases = serde_names("alias");
+		assert!(!aliases.is_empty());
+		for alias in &aliases {
+			let config = parsed(&format!("{alias} = 3"));
+			let key = alias.replace("LIBREDDIT_", "REDLIB_");
+			assert_eq!(get_setting_from_config(&key, &config).as_deref(), Some("3"), "{alias}");
+		}
+	}
+
+	#[test]
+	fn test_full_config_with_mixed_value_types() {
+		let keys = serde_names("rename");
+		let file: String = keys
+			.iter()
+			.enumerate()
+			.map(|(i, key)| match i % 3 {
+				0 => format!("{key} = \"v{i}\"\n"),
+				1 => format!("{key} = {i}\n"),
+				_ => format!("{key} = {}\n", i % 2 == 0),
+			})
+			.collect();
+		let config = parsed(&file);
+		for (i, key) in keys.iter().enumerate() {
+			let expected = match i % 3 {
+				0 => format!("v{i}"),
+				1 => i.to_string(),
+				_ => if i % 2 == 0 { "on" } else { "off" }.to_string(),
+			};
+			assert_eq!(get_setting_from_config(key, &config), Some(expected), "{key}");
+		}
+	}
+
+	#[test]
+	fn test_file_layout_variations() {
+		for file in [
+			"",
+			"# only a comment\n",
+			"\n\n   \n",
+			"REDLIB_DEFAULT_THEME = \"dark\" # trailing comment\r\nREDLIB_DEFAULT_WIDE = true\r\n",
+			"REDLIB_DEFAULT_THEME='dark'\nREDLIB_DEFAULT_WIDE=true",
+			"\"REDLIB_DEFAULT_THEME\" = \"\"\"dark\"\"\"\nREDLIB_DEFAULT_WIDE = true\n",
+			"SOME_UNKNOWN_SETTING = 1\nREDLIB_DEFAULT_THEME = \"dark\"\nREDLIB_DEFAULT_WIDE = true\n",
+			"REDLIB_DEFAULT_THEME = \"dark\"\nREDLIB_DEFAULT_WIDE = true\nREDLIB_UNUSED = [1, \"a\"]\nREDLIB_ALSO_UNUSED = { a = 1 }\n",
+		] {
+			let config = parsed(file);
+			if file.contains("REDLIB_DEFAULT_THEME") {
+				assert_eq!(get_setting_from_config("REDLIB_DEFAULT_THEME", &config).as_deref(), Some("dark"), "{file:?}");
+				assert_eq!(get_setting_from_config("REDLIB_DEFAULT_WIDE", &config).as_deref(), Some("on"), "{file:?}");
+			}
+		}
+	}
+
+	#[test]
+	fn test_invalid_files_are_errors() {
+		for file in [
+			"REDLIB_DEFAULT_THEME = dark",
+			"REDLIB_DEFAULT_THEME = \"dark",
+			"REDLIB_DEFAULT_THEME",
+			"A = 1\nA = 2",
+			"[section\n",
+		] {
+			assert!(Config::parse_file(file).is_err(), "{file:?} parsed");
+		}
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_invalid_file_falls_back_to_defaults() {
+		write("redlib.toml", "REDLIB_DEFAULT_THEME = dark").unwrap();
+		assert_eq!(get_setting("REDLIB_DEFAULT_THEME"), None);
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_config_numbers_and_booleans() {
+		let config_to_write = "REDLIB_SCRAPE_COMMENT_PREFETCH = 0\nREDLIB_ENABLE_RSS = false\nREDLIB_DEFAULT_SUBSCRIPTIONS = \"rust\"";
+		write("redlib.toml", config_to_write).unwrap();
+		assert_eq!(get_setting("REDLIB_SCRAPE_COMMENT_PREFETCH"), Some("0".into()));
+		assert_eq!(get_setting("REDLIB_ENABLE_RSS"), Some("off".into()));
+		assert_eq!(get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS"), Some("rust".into()));
 	}
 
 	#[test]

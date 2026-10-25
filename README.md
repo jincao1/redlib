@@ -389,7 +389,10 @@ You can also configure Redlib with a configuration file named `redlib.toml`. For
 ```toml
 REDLIB_DEFAULT_WIDE = "on"
 REDLIB_DEFAULT_USE_HLS = "on"
+REDLIB_SCRAPE_COMMENT_PREFETCH = 0
 ```
+
+Numbers and booleans work as well as strings; `true`/`false` mean `on`/`off`. The port is not read from the file; set it with the `PORT` environment variable or `-p`.
 
 > [!NOTE]
 > If you're deploying Redlib using the **Docker CLI or Docker Compose**, environment variables can be defined in a [`.env` file](https://docs.docker.com/compose/environment-variables/set-environment-variables/), allowing you to centralize and manage configuration in one place.
