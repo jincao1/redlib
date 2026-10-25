@@ -1,20 +1,18 @@
 #![allow(clippy::cmp_owned)]
-use crate::backends::scraped::{self as shreddit, More};
+use crate::backends::{self, is_blocked_error, json};
 use crate::body::Body;
-use crate::client::{is_blocked_error, json};
 use crate::config::get_setting;
 use crate::reddit_health::{self, Outcome};
 use crate::server::RequestExt;
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
-	build_rss_comment_item, build_rss_item, clean_url, enable_rss, enable_scrape_fallback, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes,
-	rss_page_link, rss_response, setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
+	build_rss_comment_item, build_rss_item, clean_url, enable_rss, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, rss_page_link, rss_response,
+	setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
 };
 use askama::Template;
 use hyper::{Request, Response};
 use regex::Regex;
 use rss::ChannelBuilder;
-use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -74,41 +72,14 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	let single_thread = req.param("comment_id").is_some();
 	let highlighted_comment = &req.param("comment_id").unwrap_or_default();
 
-	let more = param(&format!("?{params}"), "more_cursor").map(|cursor| More {
-		cursor,
-		query: param(&format!("?{params}"), "more_query").unwrap_or_default(),
-	});
-	let more_page = more.is_some();
-	// GraphQL cursors mean nothing to the scraper
-	let more = more.filter(|more| more.query != crate::backends::gql::MORE_QUERY);
+	let more_page = param(&format!("?{params}"), "more_cursor").is_some();
 
 	// Send a request to the url, receive JSON in response
 	let path: String = format!("{}.json?{}&raw_json=1", req.uri().path().trim_end_matches("/"), params);
-	let response = match json(path, quarantined).await {
-		Ok(response) => {
-			reddit_health::record(Outcome::Ok);
+	let response = match backends::fetch(path, quarantined).await {
+		Ok((response, backend)) => {
+			reddit_health::record(if backend == "scraped" { Outcome::Scraped } else { Outcome::Ok });
 			response
-		}
-		Err(msg) if is_blocked_error(&msg) && enable_scrape_fallback() => {
-			match scraped_thread(
-				req.param("id").unwrap_or_default(),
-				req.param("comment_id"),
-				param(&format!("?{params}"), "context"),
-				sort.clone(),
-				more,
-				quarantined,
-			)
-			.await
-			{
-				Ok(thread) => {
-					reddit_health::record(Outcome::Scraped);
-					thread
-				}
-				Err(msg) => {
-					reddit_health::record(Outcome::Blocked);
-					return error(req, &msg).await;
-				}
-			}
 		}
 		Err(msg) if msg == "quarantined" || msg == "gated" => {
 			let sub = req.param("sub").unwrap_or_default();
@@ -164,20 +135,6 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 		comment_query: query,
 		more_page,
 	}))
-}
-
-/// The thread's API response (`[post listing, comment listing]`), rebuilt
-/// from Reddit's web frontend. Used when Reddit only serves the thread's JSON
-/// to logged-in sessions: the post still comes from `/by_id`, the comments
-/// are scraped from the HTML Reddit serves logged-out visitors.
-async fn scraped_thread(id: String, comment_id: Option<String>, context: Option<String>, sort: String, more: Option<More>, quarantined: bool) -> Result<Value, String> {
-	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantined).await?;
-	let Some(sub) = post["data"]["children"][0]["data"]["subreddit"].as_str() else {
-		return Err("Post not found".to_string());
-	};
-
-	let comments = shreddit::comments(sub.to_string(), id, comment_id, sort, context, more).await?;
-	Ok(json!([post, comments]))
 }
 
 /// Feed for a post and its comments, built from the JSON API.

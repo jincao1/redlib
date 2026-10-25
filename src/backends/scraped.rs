@@ -5,16 +5,19 @@
 //! trees. This module crawls those fragments and converts them into the API's
 //! `Listing` JSON, so comment parsing and rendering stay unchanged.
 
-use crate::client::shreddit_fragment;
-use crate::utils::scrape_comment_prefetch;
+use super::{json as reddit_json, Backend, Failure, Fetch, Kind};
+use crate::client::{ALTERNATIVE_REDDIT_URL_BASE, CLIENT};
+use crate::utils::{enable_scrape_fallback, param, scrape_comment_prefetch};
 use cached::proc_macro::cached;
 use chrono::DateTime;
-use log::warn;
+use log::{trace, warn};
 use scraper::{ElementRef, Html, Selector};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use wreq::cookie::Jar;
+use wreq::header as wreq_header;
 
 /// How much of a comment tree is crawled beyond the first fragment.
 #[derive(Clone, Copy)]
@@ -36,6 +39,18 @@ const CRAWL_LIMITS: CrawlLimits = CrawlLimits {
 };
 
 const MORE_COMMENTS_PATH_PREFIX: &str = "/svc/shreddit/more-comments/";
+const SHREDDIT_PATH_PREFIX: &str = "/svc/shreddit/";
+// Asks for the bare fragment instead of a full page shell, roughly halving the response.
+const SHREDDIT_PARTIAL_ACCEPT: &str = "text/vnd.reddit.partial+html, text/html;q=0.9";
+// Reddit answers rate-limited shreddit requests with this reCAPTCHA page and a 200 status.
+const SHREDDIT_CHALLENGE_TITLE: &str = "<title>Reddit - Prove your humanity</title>";
+
+// Logged-out reddit.com session shared by shreddit requests. Reddit challenges
+// cookieless clients after about ten requests, but gives each session a budget
+// of a couple hundred requests. It is kept apart from the OAuth API requests on purpose.
+static SHREDDIT_SESSION: LazyLock<Arc<Jar>> = LazyLock::new(Arc::default);
+// Leaves room for the requests already in flight when the session is rotated.
+const SHREDDIT_RATELIMIT_ROTATE_BELOW: f32 = 20.0;
 
 static COMMENT: LazyLock<Selector> = LazyLock::new(|| Selector::parse("shreddit-comment").unwrap());
 static COMMENT_BODY: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"[slot="comment"]"#).unwrap());
@@ -52,6 +67,55 @@ static COUNT: LazyLock<Selector> = LazyLock::new(|| Selector::parse("faceplate-n
 pub struct More {
 	pub cursor: String,
 	pub query: String,
+}
+
+pub struct Scraped;
+
+impl Backend for Scraped {
+	fn name(&self) -> &'static str {
+		"scraped"
+	}
+
+	fn available(&self) -> bool {
+		enable_scrape_fallback()
+	}
+
+	fn supports(&self, kind: Kind) -> bool {
+		kind == Kind::Comments
+	}
+
+	fn fetch<'a>(&'a self, path: &'a str, quarantine: bool) -> Fetch<'a> {
+		Box::pin(async move { thread(path, quarantine).await.map_err(Failure::Invalid) })
+	}
+}
+
+/// The thread's API response (`[post listing, comment listing]`) for a
+/// `/comments/` API `path`: the post comes from `/by_id`, the comments are
+/// scraped from the HTML Reddit serves logged-out visitors.
+async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
+	let (route, query) = path.split_once('?').unwrap_or((path, ""));
+	let query = format!("?{query}");
+	let segments: Vec<&str> = route.trim_end_matches(".json").split('/').filter(|s| !s.is_empty()).collect();
+	let Some(at) = segments.iter().position(|s| *s == "comments") else {
+		return Err(format!("Not a post page | {path}"));
+	};
+	let id = segments.get(at + 1).map(ToString::to_string).unwrap_or_default();
+	let comment_id = segments.get(at + 3).map(ToString::to_string);
+	let sort = param(&query, "sort").unwrap_or_default();
+	let more = param(&query, "more_cursor").map(|cursor| More {
+		cursor,
+		query: param(&query, "more_query").unwrap_or_default(),
+	});
+	// GraphQL cursors mean nothing to the scraper
+	let more = more.filter(|more| more.query != super::gql::MORE_QUERY);
+
+	let post = reddit_json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine).await?;
+	let Some(sub) = post["data"]["children"][0]["data"]["subreddit"].as_str() else {
+		return Err("Post not found".to_string());
+	};
+
+	let comments = comments(sub.to_string(), id, comment_id, sort, param(&query, "context"), more).await?;
+	Ok(json!([post, comments]))
 }
 
 /// Fetch the comment tree of a post as a Reddit API comment `Listing`.
@@ -102,6 +166,69 @@ fn comments_path(subreddit: &str, post_id: &str, comment_id: Option<&str>, sort:
 		));
 	}
 	path
+}
+
+/// Fetch a server-rendered HTML fragment from Reddit's web frontend.
+///
+/// These are the fragments reddit.com loads for logged-out visitors, so they
+/// are sent without the spoofed OAuth client's headers. A `cursor` turns the
+/// request into the form POST used to expand a "more comments" placeholder.
+async fn shreddit_fragment(path: String, cursor: Option<String>) -> Result<String, String> {
+	if !path.starts_with(SHREDDIT_PATH_PREFIX) {
+		return Err(format!("Refusing to fetch non-shreddit path | {path}"));
+	}
+
+	if let Some(body) = shreddit_request(&path, cursor.as_deref()).await? {
+		return Ok(body);
+	}
+
+	warn!("Reddit rate limited the shreddit session, starting a new one");
+	SHREDDIT_SESSION.clear();
+	shreddit_request(&path, cursor.as_deref())
+		.await?
+		.ok_or_else(|| format!("Reddit is rate limiting comment requests. Try refreshing in a few seconds. | {path}"))
+}
+
+/// Returns `Ok(None)` when Reddit rate limits or challenges the session.
+async fn shreddit_request(path: &str, cursor: Option<&str>) -> Result<Option<String>, String> {
+	let url = format!("{ALTERNATIVE_REDDIT_URL_BASE}{path}");
+
+	let builder = match cursor {
+		Some(cursor) => CLIENT
+			.load_full()
+			.post(&url)
+			.header(wreq_header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+			.body(url::form_urlencoded::Serializer::new(String::new()).append_pair("cursor", cursor).finish()),
+		None => CLIENT.load_full().get(&url),
+	};
+
+	let response = builder
+		.header(wreq_header::ACCEPT, SHREDDIT_PARTIAL_ACCEPT)
+		.cookie_provider(Arc::clone(&SHREDDIT_SESSION))
+		.send()
+		.await
+		.map_err(|e| format!("Couldn't send request to Reddit: {e} | {path}"))?;
+
+	let status = response.status();
+	if status == wreq::StatusCode::TOO_MANY_REQUESTS {
+		return Ok(None);
+	}
+	if !status.is_success() {
+		return Err(format!("Reddit returned {status} | {path}"));
+	}
+
+	let remaining = response
+		.headers()
+		.get("x-ratelimit-remaining")
+		.and_then(|value| value.to_str().ok())
+		.and_then(|value| value.parse::<f32>().ok());
+	if remaining.is_some_and(|remaining| remaining < SHREDDIT_RATELIMIT_ROTATE_BELOW) {
+		trace!("Shreddit session rate limit is low ({remaining:?} remaining), starting a new one");
+		SHREDDIT_SESSION.clear();
+	}
+
+	let body = response.text().await.map_err(|e| format!("Failed receiving body from Reddit: {e} | {path}"))?;
+	Ok((!body.contains(SHREDDIT_CHALLENGE_TITLE)).then_some(body))
 }
 
 /// Expand "more comments" placeholders breadth-first in concurrent batches.
@@ -430,6 +557,15 @@ fn unix_time(timestamp: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn test_shreddit_fragment_rejects_other_paths() {
+		for path in ["/api/v1/me", "https://evil.example/svc/shreddit/x", "/svc/shreddit"] {
+			let error = shreddit_fragment(path.to_string(), None).await.unwrap_err();
+			assert!(error.starts_with("Refusing to fetch non-shreddit path"), "{path}: {error}");
+		}
+	}
+
 	use std::sync::{Arc, Mutex};
 
 	const FRAGMENT: &str = r#"

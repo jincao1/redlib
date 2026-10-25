@@ -4,7 +4,7 @@
 use crate::body::Body;
 use crate::config::{self, get_setting};
 use crate::redgifs;
-use crate::{client::json, server::RequestExt};
+use crate::{backends::json, server::RequestExt};
 use askama::Template;
 use chrono::DateTime;
 use clearurls::UrlCleaner;
@@ -1513,7 +1513,7 @@ pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, Stri
 		} else {
 			path.to_string()
 		},
-		blocked: crate::client::is_blocked_error(msg),
+		blocked: crate::backends::is_blocked_error(msg),
 		obscura: cfg!(feature = "obscura"),
 		prefs: Preferences::new(&req),
 		url,

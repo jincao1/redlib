@@ -5,8 +5,9 @@
 // Each response is converted into the shape of the JSON API response it
 // replaces, so the parsers and templates work unchanged.
 
-use crate::client::{json as reddit_json, CLIENT, OAUTH_CLIENT};
-use crate::utils::{format_url, param};
+use super::{json as reddit_json, Backend, Failure, Fetch, Kind};
+use crate::client::{CLIENT, OAUTH_CLIENT};
+use crate::utils::{enable_gql, format_url, param};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
 use log::debug;
@@ -22,6 +23,31 @@ const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
 /// `more_query` of the "more comments" links built here; their `more_cursor` is a GraphQL cursor.
 pub const MORE_QUERY: &str = "gql";
+
+pub struct Gql;
+
+impl Backend for Gql {
+	fn name(&self) -> &'static str {
+		"gql"
+	}
+
+	fn available(&self) -> bool {
+		enable_gql()
+	}
+
+	fn supports(&self, kind: Kind) -> bool {
+		!matches!(kind, Kind::Wiki | Kind::Duplicates)
+	}
+
+	fn fetch<'a>(&'a self, path: &'a str, quarantine: bool) -> Fetch<'a> {
+		Box::pin(async move {
+			match json(path, quarantine).await {
+				None => Err(Failure::Unsupported),
+				Some(result) => result.map_err(Failure::Invalid),
+			}
+		})
+	}
+}
 
 /// The JSON API response for `path`, rebuilt from GraphQL. `None` if no query covers `path`.
 pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>> {
