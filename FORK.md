@@ -185,4 +185,5 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - Formatting is enforced with pre-commit and a Lint workflow: `cargo fmt`, [djhtml](https://github.com/rtts/djhtml) for templates, Prettier for CSS and JS, plus whitespace and line-ending checks. Run `pre-commit install` once.
 - `.editorconfig`: tabs for Rust, 4 spaces for templates, CSS and JS, 2 spaces for YAML and JSON.
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
+- A Tests workflow runs `cargo test` on every pull request and push to `main`. Tests that need reddit.com are `#[ignore]`d there; run them locally with `cargo test -- --include-ignored`.
 - The Docker build context is an allowlist (`.dockerignore`); the commit hash comes in as the `GIT_HASH` build argument.

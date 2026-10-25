@@ -977,12 +977,14 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_rate_limit_check() {
 		rate_limit_check().await.unwrap();
 	}
 
 	#[test]
 	#[sealed_test(env = [("REDLIB_DEFAULT_SUBSCRIPTIONS", "rust")])]
+	#[ignore = "live: needs reddit.com"]
 	fn test_default_subscriptions() {
 		tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 			let subscriptions = get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS");
@@ -994,12 +996,14 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_localization_popular() {
 		let val = json(POPULAR_URL.to_string(), false).await.unwrap();
 		assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_obfuscated_share_link() {
 		let share_link = "/r/rust/s/kPgq8WNHRK".into();
 		// Correct link without share parameters
@@ -1008,6 +1012,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_private_sub() {
 		let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
 		assert!(link.is_err());
@@ -1015,6 +1020,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_banned_sub() {
 		let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
 		assert!(link.is_err());
@@ -1022,6 +1028,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_gated_sub() {
 		// quarantine to false to specifically catch when we _don't_ catch it
 		let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;

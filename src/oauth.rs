@@ -474,6 +474,7 @@ mod tests {
 	use super::*;
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_mobile_spoof_backend() {
 		// Test MobileSpoofAuth backend specifically
 		let mut backend = MobileSpoofAuth::new();
@@ -487,6 +488,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_generic_web_backend() {
 		// Test GenericWebAuth backend specifically
 		let mut backend = GenericWebAuth::new();
@@ -499,17 +501,20 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_oauth_client() {
 		// Integration test - tests the overall Oauth client
 		assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_oauth_client_refresh() {
 		force_refresh_token().await;
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_oauth_token_exists() {
 		let client = OAUTH_CLIENT.load_full();
 		let auth_header = client.headers_map.get("Authorization").unwrap();
@@ -517,6 +522,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_oauth_headers_len() {
 		assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
 	}
