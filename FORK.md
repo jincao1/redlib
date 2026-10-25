@@ -32,7 +32,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Post pages failed** with `Failed to parse page JSON data` when Reddit blocked them for anonymous clients. A block is now reported as a block instead of a JSON error.
 - **Text after a `redditstatic.com` link was mangled**: the rewrite regex matched to the end of the line and also caught other hosts (upstream `6aef54e`, `42c5d6f`).
 - **Subscriptions and filters were wiped** when saving a single setting ([redlib-org#562](https://github.com/redlib-org/redlib/issues/562)).
-- **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)).
+- **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)). With no default set, listings fall back to `hot` ([polak14 `19c6606`](https://github.com/polak14/redlib/commit/19c6606417babb0c082d9ee4948de5008475f45a)).
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
 - **Share links to posts on a user's profile** (`/u/<name>/s/<id>`) showed "Nothing here" ([redlib-org#560](https://github.com/redlib-org/redlib/pull/560)).
 - **Videos transcoded by Reddit** (`rich:video`, e.g. external GIF hosts) had no player; CMAF video format is supported ([redlib-org#549](https://github.com/redlib-org/redlib/pull/549)).
@@ -160,6 +160,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **wreq** `6.0.0-rc.28` → `0.16.1` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.1 also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
 - The emulated browsers are Chrome 149 and Firefox 151 (the newest profiles in wreq-util 0.2.0, up from Chrome 145 and Firefox 147), each on Android or Windows, chosen at random. Their JA4, Akamai HTTP/2 and peetprint fingerprints were checked against tls.peet.ws after every upgrade.
 - **hyper** `0.14` → `1.x` for the server, with graceful shutdown.
+- **Spoofed Android app versions** refreshed from Nov 2024 builds to Reddit 2026.33–2026.42 on Android 12–16, with a working `update_oauth_resources.sh` ([polak14 `e19df3b`](https://github.com/polak14/redlib/commit/e19df3b54e2a9b7628a09453bad1afb64b399df8)).
 - **hls.js** `1.5.1` → `1.7.3`.
 - All other Rust dependencies are updated (askama 0.16, cached 4, revision 0.30, toml 1.0, brotli 9, base64 0.23, …). The minimum Rust version is 1.98.
 
