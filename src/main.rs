@@ -205,8 +205,14 @@ async fn main() {
 	let port = matches.get_one::<String>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
 
-	let ipv4_only = std::env::var("IPV4_ONLY").is_ok() || matches.get_flag("ipv4-only") || setting_on("REDLIB_IPV4_ONLY");
-	let ipv6_only = std::env::var("IPV6_ONLY").is_ok() || matches.get_flag("ipv6-only") || setting_on("REDLIB_IPV6_ONLY");
+	// `-4`/`-6` on the command line decide alone; otherwise the env names, then the settings.
+	let (ipv4_only, ipv6_only) = match (matches.get_flag("ipv4-only"), matches.get_flag("ipv6-only")) {
+		(false, false) => (
+			std::env::var("IPV4_ONLY").is_ok() || setting_on("REDLIB_IPV4_ONLY"),
+			std::env::var("IPV6_ONLY").is_ok() || setting_on("REDLIB_IPV6_ONLY"),
+		),
+		flags => flags,
+	};
 
 	let listener = if ipv4_only {
 		format!("0.0.0.0:{port}")
