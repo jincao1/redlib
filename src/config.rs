@@ -172,7 +172,7 @@ impl Config {
 	pub fn load() -> Self {
 		let load_config = |name: &str| {
 			let file = read_to_string(name).ok()?;
-			Self::parse_file(&file).ok()
+			Self::parse_file(&file).map_err(|e| log::error!("Ignoring {name}, it isn't valid: {e}")).ok()
 		};
 
 		let config = load_config("redlib.toml").or_else(|| load_config("libreddit.toml")).unwrap_or_default();
