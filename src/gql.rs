@@ -1,18 +1,14 @@
-// Comments for post pages from Reddit's GraphQL API (gql-fed.reddit.com), which
-// the Android app uses. The `/comments/` JSON API is blocked for anonymous
-// tokens since 2026-10-20 (see CLAUDE.md).
+// Fallback for JSON API requests Reddit blocks for logged-out clients: the same
+// data from Reddit's GraphQL API (gql-fed.reddit.com), which the Android app
+// uses and which answers the app-only OAuth token.
 //
-// The post itself still comes from the JSON API (`/by_id`). Comments are
-// converted into the shape of the `/comments/` JSON response, so post.rs and
-// the templates work unchanged. If GraphQL fails, comments are scraped instead
-// (shreddit.rs). Both understand the same cursors.
+// Each response is converted into the shape of the JSON API response it
+// replaces, so the parsers and templates work unchanged.
 
-use crate::client::{json, CLIENT, OAUTH_CLIENT};
+use crate::client::{json as reddit_json, CLIENT, OAUTH_CLIENT};
 use crate::utils::{format_url, param};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
-use log::{debug, warn};
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use log::debug;
 use serde_json::{json as json_value, Value};
 
 const GQL_URL: &str = "https://gql-fed.reddit.com/";
@@ -23,22 +19,26 @@ const POST_COMMENTS_HASH: &str = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4d
 // Reddit returns at most 200 comments per request, filled breadth-first
 const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
+/// `more_query` of the "more comments" links built here; their `more_cursor` is a GraphQL cursor.
+pub const MORE_QUERY: &str = "gql";
+
+/// The JSON API response for `path`, rebuilt from GraphQL. `None` if no query covers `path`.
+pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>> {
+	let route = path.split('?').next().unwrap_or_default();
+	if route.contains("/comments/") {
+		return Some(thread(path, quarantine).await);
+	}
+	None
+}
 
 /// Builds a `/comments/` JSON response for `path` (a `/comments/` API path, as
-/// built by `post::item`). Supports the `sort` and `cursor` query parameters
-/// and single comment threads.
-pub async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
+/// built by `post::item`). Supports the `sort` and `more_cursor` query
+/// parameters and single comment threads.
+async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(path).ok_or_else(|| format!("Couldn't parse post path | {path}"))?;
 
-	let (post, comments) = futures_lite::future::zip(json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine), comments(&id, comment_id, path)).await;
-	let post = post?;
-	match comments {
-		Ok(comments) => Ok(json_value!([post, listing(comments)])),
-		Err(e) => {
-			warn!("GraphQL comments failed: {e}");
-			Err(e)
-		}
-	}
+	let (post, comments) = futures_lite::future::zip(reddit_json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine), comments(&id, comment_id, path)).await;
+	Ok(json_value!([post?, listing(comments?)]))
 }
 
 fn parse_path(path: &str) -> Option<(String, Option<String>)> {
@@ -75,17 +75,19 @@ async fn comments(id: &str, comment_id: Option<String>, path: &str) -> Result<Ve
 	if let Some(comment_id) = comment_id {
 		variables["focusedCommentContext"] = json_value!({ "commentId": format!("t1_{comment_id}"), "isFocusedThreadOnly": true });
 	}
-	// Links carry cursors base64-encoded, the way the scraper needs them
-	if let Some(cursor) = param(path, "cursor") {
-		let cursor = STANDARD.decode(&cursor).ok().and_then(|c| String::from_utf8(c).ok()).ok_or("Invalid comments cursor")?;
+	if let Some(cursor) = param(path, "more_cursor").filter(|_| param(path, "more_query").as_deref() == Some(MORE_QUERY)) {
 		variables["after"] = cursor.into();
 	}
 
 	let response = query("PostComments", POST_COMMENTS_HASH, &variables).await?;
+	comment_tree(&response, id)
+}
+
+fn comment_tree(response: &Value, post_id: &str) -> Result<Vec<Value>, String> {
 	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
 		.as_array()
 		.ok_or_else(|| format!("No comments in response: {}", response["errors"]))?;
-	Ok(nest(trees.iter().filter_map(|tree| item(tree, id)).collect()))
+	Ok(nest(trees.iter().filter_map(|tree| item(tree, post_id)).collect()))
 }
 
 /// Runs a persisted query. Fields that time out upstream come back null with an
@@ -129,16 +131,15 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 
 	let more = &tree["more"];
 	if !more.is_null() {
-		let count = more["count"].as_i64().unwrap_or_default();
 		return Some((
 			depth,
-			if tree["parentId"].is_null() {
-				// More top-level comments: rendered as a link to the next page of comments
-				let cursor = STANDARD.encode(more["cursor"].as_str()?);
-				json_value!({ "kind": "more_comments", "data": { "id": utf8_percent_encode(&cursor, NON_ALPHANUMERIC).to_string(), "count": count, "parent_id": post_fullname } })
-			} else {
-				json_value!({ "kind": "more", "data": { "id": "", "count": count, "parent_id": parent } })
-			},
+			json_value!({ "kind": "more", "data": {
+				"id": "",
+				"count": more["count"].as_i64().unwrap_or_default(),
+				"parent_id": parent,
+				"cursor": more["cursor"],
+				"more_query": MORE_QUERY,
+			} }),
 		));
 	}
 
@@ -408,10 +409,32 @@ mod tests {
 		assert_eq!(replies[1]["kind"], "more");
 		assert_eq!(replies[1]["data"]["parent_id"], "t1_a");
 		assert_eq!(replies[1]["data"]["count"], 5);
+		assert_eq!(replies[1]["data"]["cursor"], "c1");
 
 		assert_eq!(comments[1]["data"]["replies"], "");
-		assert_eq!(comments[2]["kind"], "more_comments");
-		// base64 of "c2", as the scraper's cursors
-		assert_eq!(comments[2]["data"]["id"], "YzI%3D");
+		assert_eq!(comments[2]["kind"], "more");
+		assert_eq!(comments[2]["data"]["parent_id"], "t3_p");
+		assert_eq!(comments[2]["data"]["cursor"], "c2");
+		assert_eq!(comments[2]["data"]["more_query"], MORE_QUERY);
+	}
+
+	fn request() -> hyper::Request<crate::body::Body> {
+		hyper::Request::new(crate::body::Body::from(""))
+	}
+
+	#[test]
+	fn test_post_comments_fixture() {
+		let response: Value = serde_json::from_str(include_str!("../tests/fixtures/gql/post_comments.json")).unwrap();
+		let tree = listing(comment_tree(&response, "1xe5jpg").unwrap());
+		let comments = crate::post::parse_comments(&tree, "/r/AskReddit/comments/1xe5jpg/x/", "op", "", &Default::default(), &request());
+
+		assert_eq!(comments.len(), 2);
+		assert_eq!(comments[0].author.name, "aubreynewmanoc");
+		assert!(comments[0].body.contains("Red Bull Stratos"));
+		assert!(!comments[0].replies.is_empty());
+		let more = comments.last().unwrap();
+		assert_eq!((more.kind.as_str(), more.parent_kind.as_str()), ("more", "t3"));
+		assert!(more.more_href.contains("more_query=gql"));
+		assert_eq!(more.more_count, 478);
 	}
 }
