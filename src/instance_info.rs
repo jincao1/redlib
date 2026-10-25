@@ -11,6 +11,17 @@ use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use time::{macros::format_description, OffsetDateTime};
 
+const SCORE_EXPLANATION: &str = "<details><summary>How the score is calculated</summary>\
+<p>The score is how much Redlib currently prefers a backend: its recent success, blended with its configured position and halved for backends that use a Reddit session.</p>\
+<pre><code>score = (S + 4·P) / (N + 4) / w</code></pre>\
+<ul>\
+<li><code>S</code>, <code>N</code>: successes and attempts. A page counts 1, a block 0, a network error ½. Results fade with a half-life of 10 minutes.</li>\
+<li><code>P</code>: start value from the configured position, <code>0.5 · (n − i) / n · w</code> for place <code>i</code> (from 0) of <code>n</code>.</li>\
+<li><code>w</code>: weight, 2 for session backends, otherwise 1.</li>\
+</ul>\
+<p>Highest score is tried first. A backend has to score 10% higher to overtake the one before it. A backend that's never tried keeps its start score.</p>\
+</details>";
+
 /// This is the local static that is initialized at runtime (technically at
 /// the first request to the info endpoint) and contains the data
 /// retrieved from the info endpoint.
@@ -117,7 +128,7 @@ impl InstanceInfo {
 		}
 	}
 	fn to_table(&self) -> String {
-		let mut container = Container::default();
+		let mut container = Container::default().with_attributes([("id", "instance_info")]);
 		if let Some(banner) = &self.config.banner {
 			container.add_header(3, "Instance banner");
 			container.add_raw("<br />");
@@ -153,9 +164,9 @@ impl InstanceInfo {
 			.with_header_row(["Settings"]),
 		);
 		container.add_raw("<br />");
-		container.add_table(
-			Table::from(crate::backends::status().into_iter().map(|(kind, rates)| [kind.to_string(), rates])).with_header_row(["Backends, current order and success rate"]),
-		);
+		container
+			.add_table(Table::from(crate::backends::status().into_iter().map(|(kind, scores)| [kind.to_string(), scores])).with_header_row(["Backends, current order and score"]));
+		container.add_raw(SCORE_EXPLANATION);
 		container.add_raw("<br />");
 		container.add_table(
 			Table::from([

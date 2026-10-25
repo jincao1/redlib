@@ -100,7 +100,7 @@ Redlib tries backends one after another until one returns the page or Reddit giv
 REDLIB_ENDPOINTS_COMMENTS="cookied-json,gql,scraped"
 ```
 
-While running, Redlib reorders the listed backends by how often each worked in the last half hour or so, counting session backends as twice as expensive (they use up the account's request budget). Your order is where it starts after a restart, and where a backend drifts back to once its failures are old, so a blocked backend gets tried again later. `/info` shows the current order and success rates.
+While running, Redlib reorders the listed backends by how often each worked in the last half hour or so, counting session backends as twice as expensive (they use up the account's request budget). Your order is where it starts after a restart, and where a backend drifts back to once its failures are old, so a blocked backend gets tried again later. `/info` shows the current order and each backend's score.
 
 `json` is Reddit's API without an account, `cookied-json` the same with a session from `REDLIB_REDDIT_COOKIE`, `gql` Reddit's GraphQL API (what the Android app uses), `scraped` comments from the HTML Reddit serves logged-out visitors, and `obscura-cookied-json` a session through Obscura (`latest-obscura` only).
 

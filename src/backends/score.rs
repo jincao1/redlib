@@ -119,9 +119,9 @@ impl Ranking {
 		}
 	}
 
-	/// Each backend's name and success rate, in the current order.
-	pub fn rates(&self, now: Instant) -> Vec<(&'static str, f64)> {
-		self.order.iter().map(|&i| (self.backends[i].name(), self.stats[i].rate(now))).collect()
+	/// Each backend's name and score, in the current order.
+	pub fn scores(&self, now: Instant) -> Vec<(&'static str, f64)> {
+		self.order.iter().map(|&i| (self.backends[i].name(), self.score(i, now))).collect()
 	}
 }
 
@@ -228,6 +228,6 @@ mod tests {
 		let mut timed_out = Ranking::new(vec![&GQL], now);
 		failed.record("gql", Outcome::Failure, now);
 		timed_out.record("gql", Outcome::NetworkError, now);
-		assert!(timed_out.rates(now)[0].1 > failed.rates(now)[0].1);
+		assert!(timed_out.scores(now)[0].1 > failed.scores(now)[0].1);
 	}
 }
