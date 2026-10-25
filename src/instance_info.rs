@@ -9,7 +9,7 @@ use build_html::{Container, Html, HtmlContainer, Table};
 use hyper::{http::Error, Request, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
-use time::OffsetDateTime;
+use time::{macros::format_description, OffsetDateTime};
 
 /// This is the local static that is initialized at runtime (technically at
 /// the first request to the info endpoint) and contains the data
@@ -102,7 +102,12 @@ impl InstanceInfo {
 			package_name: env!("CARGO_PKG_NAME").to_string(),
 			crate_version: env!("CARGO_PKG_VERSION").to_string(),
 			git_commit: env!("GIT_HASH").to_string(),
-			deploy_date: OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()).to_string(),
+			deploy_date: OffsetDateTime::now_local()
+				.unwrap_or_else(|_| OffsetDateTime::now_utc())
+				.format(format_description!(
+					"[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]"
+				))
+				.unwrap_or_default(),
 			#[cfg(debug_assertions)]
 			compile_mode: "Debug".into(),
 			#[cfg(not(debug_assertions))]
@@ -119,11 +124,18 @@ impl InstanceInfo {
 			container.add_paragraph(banner);
 			container.add_raw("<br />");
 		}
+		let source = crate::utils::get_source_url();
+		let commit = format!(
+			"<a href=\"{source}/commit/{full}\" title=\"{full}\">{short}</a>",
+			full = self.git_commit.trim(),
+			short = crate::utils::short_git_hash()
+		);
+		let source_link = format!("<a href=\"{source}\">{source}</a>");
 		container.add_table(
 			Table::from([
 				["Package name", &self.package_name],
-				["Crate version", &self.crate_version],
-				["Git commit", &self.git_commit],
+				["Source", &source_link],
+				["Git commit", &commit],
 				["Deploy date", &self.deploy_date],
 				["Deploy timestamp", &self.deploy_unix_ts.to_string()],
 				["Compile mode", &self.compile_mode],
@@ -177,7 +189,7 @@ impl InstanceInfo {
 				let mut text = format!(
 					concat!(
 						"Package name: {}\n",
-						"Crate version: {}\n",
+						"Source: {}\n",
 						"Git commit: {}\n",
 						"Deploy date: {}\n",
 						"Deploy timestamp: {}\n",
@@ -215,7 +227,7 @@ impl InstanceInfo {
 						"    Default max comment thread depth: {}\n",
 					),
 					self.package_name,
-					self.crate_version,
+					crate::utils::get_source_url(),
 					self.git_commit,
 					self.deploy_date,
 					self.deploy_unix_ts,
