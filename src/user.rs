@@ -170,6 +170,7 @@ mod tests {
 	use super::*;
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_user() {
 		let user = user("spez").await;
 		assert!(user.is_ok());
