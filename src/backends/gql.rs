@@ -359,11 +359,13 @@ fn post(node: &Value) -> Option<Value> {
 	let (flair_type, flair_richtext) = flair_parts(&node["flair"]);
 	let (author_flair_type, author_flair_richtext) = flair_parts(&node["authorFlair"]);
 	let thumbnail = if node["isThumbnailEnabled"] == false { &Value::Null } else { &node["thumbnail"] };
+	// PostsByIds calls it `postTitle`, the feeds `title`.
+	let title = if node["title"].is_string() { &node["title"] } else { &node["postTitle"] };
 
 	let mut data = json_value!({
 		"id": fullname.strip_prefix("t3_").unwrap_or(fullname),
 		"name": fullname,
-		"title": node["title"],
+		"title": title,
 		"author": node["authorInfo"]["name"].as_str().unwrap_or("[deleted]"),
 		"author_flair_type": author_flair_type,
 		"author_flair_richtext": author_flair_richtext,
@@ -968,6 +970,7 @@ mod tests {
 
 		let video = crate::utils::parse_post(&posts[0]).await;
 		assert_eq!(video.post_type, "video");
+		assert_eq!(video.title, "Secret knowledge");
 		assert_eq!(video.media.url, "/vid/apxzua5q5ixh1/CMAF/720.mp4");
 		assert!(video.media.alt_url.starts_with("/hls/apxzua5q5ixh1/HLSPlaylist.m3u8"));
 		let gallery = crate::utils::parse_post(&posts[1]).await;
