@@ -232,19 +232,19 @@ pub fn log_orders() {
 }
 
 /// Each kind with its usable backends in their current order and their
-/// success rates, like `gql 92%, json 40%`.
+/// scores, like `gql 0.92, json 0.40`.
 pub fn status() -> Vec<(&'static str, String)> {
 	let now = Instant::now();
 	Kind::ALL
 		.iter()
 		.map(|&kind| {
-			let rates: Vec<String> = ranking(kind)
-				.rates(now)
+			let scores: Vec<String> = ranking(kind)
+				.scores(now)
 				.into_iter()
 				.filter(|(name, _)| BACKENDS.iter().any(|b| b.name() == *name && usable(kind, *b)))
-				.map(|(name, rate)| format!("{name} {:.0}%", rate * 100.0))
+				.map(|(name, score)| format!("{name} {score:.2}"))
 				.collect();
-			(kind.name(), rates.join(", "))
+			(kind.name(), scores.join(", "))
 		})
 		.collect()
 }
