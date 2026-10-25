@@ -191,6 +191,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
 - A Tests workflow runs `cargo test` on every pull request and push to `main`. Tests that need reddit.com are `#[ignore]`d there; run them locally with `cargo test -- --include-ignored`.
 - A new push cancels the Lint, Tests and Container build runs still going for the same branch.
+- CI only runs when files it checks change: a commit that touches only Markdown runs Lint but no Tests or Container build.
 - Dependabot opens weekly update PRs for crates, GitHub Actions and pre-commit hooks, grouped into one PR each.
 - Every place Reddit data comes from (anonymous JSON, session JSON, GraphQL, scraping, Obscura) is one file in `src/backends/` implementing the `Backend` trait; one loop tries them in turn.
 - The Docker build context is an allowlist (`.dockerignore`); the commit hash comes in as the `GIT_HASH` build argument.
