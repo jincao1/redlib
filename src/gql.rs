@@ -37,8 +37,8 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 		["r", sub, "search"] => search(path, Some(sub)).await,
 		["subreddits", "search"] => search_subreddits(path).await,
 		["user", name, "about"] => user_about(name).await,
-		["user", name, "submitted"] => user_posts(path, name).await,
-		["user", name, "comments"] => user_comments(path, name).await,
+		["user", name, "submitted"] => user_posts(path, name, param(path, "after").as_deref()).await,
+		["user", name, "comments"] => user_comments(path, name, param(path, "after").as_deref()).await,
 		["user", name] | ["user", name, "overview"] => user_overview(path, name).await,
 		["r", "all", rest @ ..] => all(path, sort(rest)?).await,
 		["r", "popular", rest @ ..] => feed("PopularFeedElements", POPULAR_FEED_HASH, feed_variables(path, sort(rest)?), "/popular/elements").await,
@@ -535,20 +535,25 @@ fn user(profile: &Value, karma: Value) -> Option<Value> {
 	} }))
 }
 
-fn profile_variables(path: &str) -> Value {
-	feed_variables(path, &param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "new".to_string()))
+fn profile_variables(path: &str, after: Option<&str>) -> Value {
+	let mut variables = feed_variables(path, &param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "new".to_string()));
+	match after.filter(|a| !a.is_empty()) {
+		Some(after) => variables["after"] = STANDARD.encode(after).into(),
+		None => variables["after"] = Value::Null,
+	}
+	variables
 }
 
-async fn user_posts(path: &str, name: &str) -> Result<Value, String> {
-	let mut variables = profile_variables(path);
+async fn user_posts(path: &str, name: &str, cursor: Option<&str>) -> Result<Value, String> {
+	let mut variables = profile_variables(path, cursor);
 	variables["username"] = name.into();
 	variables["includeSubredditInPosts"] = true.into();
 	feed("UserSubmittedPosts", USER_POSTS_HASH, variables, "/postFeed/posts").await
 }
 
 /// The comments come without their content; `LiveCommentsByIds` fills it in.
-async fn user_comments(path: &str, name: &str) -> Result<Value, String> {
-	let mut variables = profile_variables(path);
+async fn user_comments(path: &str, name: &str, cursor: Option<&str>) -> Result<Value, String> {
+	let mut variables = profile_variables(path, cursor);
 	variables["name"] = name.into();
 	let response = query("SubmittedComments", USER_COMMENTS_HASH, &variables).await?;
 	let connection = &response["data"]["redditorInfoByName"]["comments"];
@@ -593,20 +598,52 @@ fn user_comment_items(previews: &Value, full: &Value) -> Vec<Value> {
 		.collect()
 }
 
-/// Posts and comments merged, newest first; one page only, as the two have separate cursors.
+/// Posts and comments merged, newest first. The two have separate cursors, so
+/// its `after` is `<post after>,<comment after>`, with `-` for a side that has no more.
 async fn user_overview(path: &str, name: &str) -> Result<Value, String> {
-	let (posts, comments) = futures_lite::future::zip(user_posts(path, name), user_comments(path, name)).await;
-	let mut children: Vec<Value> = [posts?, comments?]
-		.into_iter()
-		.flat_map(|l| l["data"]["children"].as_array().cloned().unwrap_or_default())
-		.collect();
-	children.sort_by(|a, b| {
-		b["data"]["created_utc"]
-			.as_f64()
-			.unwrap_or_default()
-			.total_cmp(&a["data"]["created_utc"].as_f64().unwrap_or_default())
-	});
-	Ok(listing(children))
+	let after = param(path, "after").unwrap_or_default();
+	let (post_after, comment_after) = after.split_once(',').unwrap_or(("", ""));
+	let posts = async {
+		match post_after {
+			"-" => Ok(Value::Null),
+			after => user_posts(path, name, Some(after)).await,
+		}
+	};
+	let comments = async {
+		match comment_after {
+			"-" => Ok(Value::Null),
+			after => user_comments(path, name, Some(after)).await,
+		}
+	};
+	let (posts, comments) = futures_lite::future::zip(posts, comments).await;
+	Ok(merge_overview(&posts?, &comments?, post_after, comment_after))
+}
+
+/// Merges a page of posts and a page of comments. Items older than the last one
+/// of a side that has more pages wait for the next page, so the order holds across pages.
+fn merge_overview(posts: &Value, comments: &Value, post_after: &str, comment_after: &str) -> Value {
+	let created = |item: &Value| item["data"]["created_utc"].as_f64().unwrap_or_default();
+	let sides = [(posts, post_after), (comments, comment_after)];
+	let cutoff = sides
+		.iter()
+		.filter(|(listing, _)| listing["data"]["after"].is_string())
+		.filter_map(|(listing, _)| listing["data"]["children"].as_array()?.last().map(created))
+		.fold(f64::MIN, f64::max);
+	let mut children = Vec::new();
+	let mut next = Vec::new();
+	for (listing, after) in sides {
+		let page = listing["data"]["children"].as_array().map(Vec::as_slice).unwrap_or_default();
+		let kept: Vec<Value> = page.iter().filter(|item| created(item) >= cutoff).cloned().collect();
+		next.push(match kept.last() {
+			_ if kept.len() == page.len() && !listing["data"]["after"].is_string() => "-".to_string(),
+			Some(last) => last["data"]["name"].as_str().unwrap_or_default().to_string(),
+			None => after.to_string(),
+		});
+		children.extend(kept);
+	}
+	children.sort_by(|a, b| created(b).total_cmp(&created(a)));
+	let after = next.iter().any(|a| *a != "-").then(|| next.join(","));
+	json_value!({ "kind": "Listing", "data": { "after": after, "children": children } })
 }
 
 /// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
@@ -843,6 +880,28 @@ mod tests {
 		assert_eq!((more.kind.as_str(), more.parent_kind.as_str()), ("more", "t3"));
 		assert!(more.more_href.contains("more_query=gql"));
 		assert_eq!(more.more_count, 478);
+	}
+
+	#[test]
+	fn test_overview_pages_keep_posts_and_comments_in_order() {
+		let item = |name: &str, created: u32| json_value!({ "data": { "name": name, "created_utc": created } });
+		let posts = json_value!({ "data": { "after": "t3_c", "children": [item("t3_a", 90), item("t3_b", 50), item("t3_c", 10)] } });
+		let comments = json_value!({ "data": { "after": "t1_z", "children": [item("t1_x", 80), item("t1_y", 40), item("t1_z", 30)] } });
+
+		let page = merge_overview(&posts, &comments, "", "");
+		let names: Vec<_> = page["data"]["children"].as_array().unwrap().iter().map(|c| c["data"]["name"].clone()).collect();
+		// t3_c is older than the last comment, so it waits for the next page
+		assert_eq!(names, ["t3_a", "t1_x", "t3_b", "t1_y", "t1_z"]);
+		assert_eq!(page["data"]["after"], "t3_b,t1_z");
+
+		let last_comments = json_value!({ "data": { "after": null, "children": [item("t1_w", 5)] } });
+		let page = merge_overview(&json_value!({ "data": { "after": null, "children": [item("t3_c", 10)] } }), &last_comments, "t3_b", "t1_z");
+		assert_eq!(page["data"]["children"].as_array().unwrap().len(), 2);
+		assert_eq!(page["data"]["after"], Value::Null);
+
+		let page = merge_overview(&Value::Null, &comments, "-", "");
+		assert_eq!(page["data"]["children"].as_array().unwrap().len(), 3);
+		assert_eq!(page["data"]["after"], "-,t1_z");
 	}
 
 	fn fixture(name: &str) -> Value {
