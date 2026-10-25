@@ -2,6 +2,15 @@
 document.addEventListener("click", async (event) => {
     const link = event.target.closest("a.deeper_replies");
     if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
+
+    let p = link.parentElement;
+    let depth = 0;
+    while (p) {
+        if (p.classList.contains("comment")) depth++;
+        p = p.parentElement;
+    }
+    if (depth >= 8) return; // don't load more than 8 levels deep
+
     event.preventDefault();
     if (link.dataset.loading) return;
     link.dataset.loading = "1";
