@@ -1599,6 +1599,11 @@ pub fn get_source_url() -> String {
 	get_setting("REDLIB_SOURCE_URL").unwrap_or("https://github.com/Nachtalb/redlib".into())
 }
 
+pub fn short_git_hash() -> &'static str {
+	let hash = env!("GIT_HASH").trim();
+	hash.get(..7).unwrap_or(hash)
+}
+
 /// Determines if a request should redirect to a NSFW landing gate.
 pub fn should_be_nsfw_gated(req: &Request<Body>, _req_url: &str) -> bool {
 	(setting(req, "show_nsfw") != "on") || sfw_only()

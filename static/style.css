@@ -391,6 +391,11 @@ body > footer {
     opacity: 0.8;
 }
 
+#source svg {
+    vertical-align: -2px;
+    margin-right: 0.3em;
+}
+
 /* / Body footer. */
 
 /* Footer in content block. */
@@ -2120,10 +2125,6 @@ body.update_footer_shown {
 }
 
 @media screen and (max-width: 507px) {
-    #version {
-        display: none;
-    }
-
     .post {
         grid-template:
             "post_header post_header post_thumbnail" auto
