@@ -34,7 +34,6 @@ pub async fn instance_info(req: Request<Body>) -> Result<Response<Body>, String>
 	let extension = req.param("extension").unwrap_or_default();
 	let response = match extension.as_str() {
 		"yaml" | "yml" => info_yaml(),
-		"txt" => info_txt(),
 		"json" => info_json(),
 		"html" | "" => info_html(&req),
 		_ => {
@@ -79,16 +78,10 @@ fn info_yaml() -> Result<Response<Body>, Error> {
 	}
 }
 
-fn info_txt() -> Result<Response<Body>, Error> {
-	Response::builder()
-		.status(200)
-		.header("content-type", "text/plain")
-		.body(Body::from(INSTANCE_INFO.to_string(&StringType::Raw)))
-}
 fn info_html(req: &Request<Body>) -> Result<Response<Body>, Error> {
 	let message = MessageTemplate {
 		title: String::from("Instance information"),
-		body: INSTANCE_INFO.to_string(&StringType::Html),
+		body: INSTANCE_INFO.to_table(),
 		prefs: Preferences::new(req),
 		url: req.uri().to_string(),
 	}
@@ -194,95 +187,6 @@ impl InstanceInfo {
 		);
 		container.to_html_string().replace("<th>", "<th colspan=\"2\">")
 	}
-	fn to_string(&self, string_type: &StringType) -> String {
-		match string_type {
-			StringType::Raw => {
-				let mut text = format!(
-					concat!(
-						"Package name: {}\n",
-						"Source: {}\n",
-						"Git commit: {}\n",
-						"Deploy date: {}\n",
-						"Deploy timestamp: {}\n",
-						"Compile mode: {}\n",
-						"SFW only: {}\n",
-						"RSS enabled: {}\n",
-						"RedGifs enabled: {}\n",
-						"GIPHY enabled: {}\n",
-						"Scrape fallback enabled: {}\n",
-						"GraphQL fallback enabled: {}\n",
-						"Scrape comment prefetch: {}\n",
-						"Full URL: {}\n",
-						"Remove default feeds: {}\n",
-						"Pushshift frontend: {}\n",
-						"Config:\n",
-						"    Banner: {:?}\n",
-						"    Hide awards: {}\n",
-						"    Hide score: {}\n",
-						"    Default theme: {}\n",
-						"    Default front page: {}\n",
-						"    Default layout: {}\n",
-						"    Default wide: {}\n",
-						"    Default comment sort: {}\n",
-						"    Default post sort: {}\n",
-						"    Default blur Spoiler: {}\n",
-						"    Default show NSFW: {}\n",
-						"    Default blur NSFW: {}\n",
-						"    Default use HLS: {}\n",
-						"    Default hide HLS notification: {}\n",
-						"    Default clean urls: {}\n",
-						"    Default subscriptions: {}\n",
-						"    Default filters: {}\n",
-						"    Default geo filter: {}\n",
-						"    Default posts per page: {}\n",
-						"    Default max comment thread depth: {}\n",
-					),
-					self.package_name,
-					crate::utils::get_source_url(),
-					self.git_commit,
-					self.deploy_date,
-					self.deploy_unix_ts,
-					self.compile_mode,
-					effective(&self.config.sfw_only, "off"),
-					effective(&self.config.enable_rss, "off"),
-					effective(&self.config.enable_redgifs, "on"),
-					effective(&self.config.enable_giphy, "on"),
-					effective(&self.config.enable_scrape_fallback, "on"),
-					effective(&self.config.enable_gql, "on"),
-					effective(&self.config.scrape_comment_prefetch, "0"),
-					effective(&self.config.full_url, "none"),
-					effective(&self.config.default_remove_default_feeds, "off"),
-					effective(&self.config.pushshift, crate::config::DEFAULT_PUSHSHIFT_FRONTEND),
-					self.config.banner,
-					effective(&self.config.default_hide_awards, "off"),
-					effective(&self.config.default_hide_score, "off"),
-					effective(&self.config.default_theme, "system"),
-					effective(&self.config.default_front_page, "default"),
-					effective(&self.config.default_layout, "card"),
-					effective(&self.config.default_wide, "off"),
-					effective(&self.config.default_comment_sort, "confidence"),
-					effective(&self.config.default_post_sort, "hot"),
-					effective(&self.config.default_blur_spoiler, "off"),
-					effective(&self.config.default_show_nsfw, "off"),
-					effective(&self.config.default_blur_nsfw, "off"),
-					effective(&self.config.default_use_hls, "off"),
-					effective(&self.config.default_hide_hls_notification, "off"),
-					effective(&self.config.default_clean_urls, "off"),
-					effective(&self.config.default_subscriptions, "none"),
-					effective(&self.config.default_filters, "none"),
-					effective(&self.config.default_geo_filter, "GLOBAL"),
-					effective(&self.config.default_posts_per_page, "25"),
-					effective(&self.config.default_max_comment_thread_depth, "0"),
-				);
-				text.push_str("Backends:\n");
-				for (kind, rates) in crate::backends::status() {
-					text.push_str(&format!("    {kind}: {rates}\n"));
-				}
-				text
-			}
-			StringType::Html => self.to_table(),
-		}
-	}
 }
 /// The configured value, or the value Redlib uses when it is unset or empty.
 fn effective(value: &Option<String>, default: &str) -> String {
@@ -292,10 +196,6 @@ fn effective(value: &Option<String>, default: &str) -> String {
 	}
 }
 
-enum StringType {
-	Raw,
-	Html,
-}
 #[derive(Template)]
 #[template(path = "message.html")]
 struct MessageTemplate {

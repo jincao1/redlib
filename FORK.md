@@ -41,7 +41,6 @@ Bugs present in upstream Redlib that are fixed here:
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
 - **Settings codes broke on every new setting**: codes exported before a new field was added failed to restore. See [Settings codes](#settings-codes).
-- **`/info.txt` showed the wrong values** next to its labels (e.g. "Pushshift frontend" showed the RSS setting).
 - **Comment search had no submit button.**
 - **Large numbers** show as `10K` instead of `10.0K`.
 - **Comment collapse arrow** has a bigger touch area on mobile ([redlib-org#520](https://github.com/redlib-org/redlib/pull/520)).
@@ -102,7 +101,7 @@ Own features:
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
-- **Instance info shows the values in use**: `/info` and `/info.txt` show the default for settings that aren't configured, marked `(default)`, instead of `Unset` or `None`.
+- **Instance info shows the values in use**: `/info` shows the default for settings that aren't configured, marked `(default)`, instead of `Unset` or `None`.
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 - **`/healthz/reddit` endpoint**: for status pages. Reports how the last 20 post pages visitors opened went (`ok`, `scraped`, `blocked`) and returns `503` when fewer than half got Reddit's JSON. It never contacts Reddit itself. `/healthz/reddit.json` serves the same status as a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge).
 - **The footer shows the running commit**: a GitHub icon and the short commit hash link to the source repository, in place of the version number and the separate "Code" link. `/info` shows the same: a Source row and the short commit linked to the commit itself (full hash on hover), with no crate version, and the deploy date to the second.
@@ -183,6 +182,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **`%2fcomments` path encoding** of thread requests ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592), [#591](https://github.com/redlib-org/redlib/issues/591)): Reddit decodes the path before blocking it, so it only marked requests as coming from Redlib.
+- **`/info.txt`** is gone; `/info` and `/info.json` remain.
 - **Upstream's release binary and pull-request workflows** are disabled (`*.disabled`). The container build publishes the binaries, and Lint and Tests run on pull requests.
 
 ## Development
