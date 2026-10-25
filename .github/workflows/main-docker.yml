@@ -182,11 +182,16 @@ jobs:
 
       - name: Update the latest release
         run: |
-          notes="Static Linux binaries built from ${GITHUB_SHA::7}. Updated on every push to main."
+          short=${GITHUB_SHA::7}
+          subject=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message | split("\n")[0]')
+          title="Latest build ($short)"
+          notes="Built from [\`$short\`]($GITHUB_SERVER_URL/$GH_REPO/commit/$GITHUB_SHA) ($subject) on $(date -u '+%Y-%m-%d %H:%M') UTC.
+
+          Static Linux binaries, the same ones as in the \`ghcr.io/${GITHUB_REPOSITORY,,}:sha-$short\` image. This release is replaced on every push to \`main\`."
           if gh release view latest > /dev/null 2>&1; then
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release upload latest dist/* --clobber
-            gh release edit latest --notes "$notes"
+            gh release edit latest --title "$title" --notes "$notes" --latest
           else
-            gh release create latest dist/* --target "$GITHUB_SHA" --title "Latest build" --notes "$notes" --latest
+            gh release create latest dist/* --target "$GITHUB_SHA" --title "$title" --notes "$notes" --latest
           fi
