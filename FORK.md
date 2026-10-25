@@ -93,6 +93,7 @@ From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak
 Own features:
 
 - **More pages from GraphQL**: the same fallback also covers posts by ID, subreddit/popular/all listings, search, subreddit info and sidebar, and user pages (a user's overview is one merged page of posts and comments).
+- **Backend order**: every Reddit request tries a list of backends (anonymous JSON, session JSON, GraphQL, scraping, Obscura) in an order set per kind of request with `REDLIB_ENDPOINTS_<KIND>`. By default GraphQL goes first except for listings, wiki and duplicates. See [Backend order](README.md#backend-order).
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
 - **Requests go through a headless browser**: with a session set, every Reddit API request is fetched from `www.reddit.com` through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode: one request per page instead of an anonymous attempt followed by session retries. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds keep the plain HTTP client.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
@@ -113,10 +114,11 @@ Own features:
 |---|---|---|
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
 | `REDLIB_ENABLE_GIPHY` | `on` | Proxy GIPHY GIFs in comments and play them inline. `off` leaves them as plain links. |
-| `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Scrape post pages from Reddit's HTML when Reddit blocks the thread JSON. `off` shows the block error instead. |
-| `REDLIB_ENABLE_GQL` | `on` | Load pages Reddit blocks from its GraphQL API. `off` never contacts GraphQL. |
+| `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Allow the `scraped` backend: comments scraped from Reddit's HTML. `off` shows the block error instead. |
+| `REDLIB_ENABLE_GQL` | `on` | Allow the `gql` backend: Reddit's GraphQL API. `off` never contacts GraphQL. |
+| `REDLIB_ENDPOINTS`, `REDLIB_ENDPOINTS_<KIND>` | per kind | Which backends load Reddit data, in which order. |
 | `REDLIB_SCRAPE_COMMENT_PREFETCH` | `0` | Extra requests a scraped post page makes to load more comments up front. `0` loads them only when asked. |
-| `REDLIB_REDDIT_COOKIE` | (empty) | `Cookie` header of a logged-in reddit.com session, several separated by `\|`. Needed for post pages. **Secret.** |
+| `REDLIB_REDDIT_COOKIE` | (empty) | `Cookie` header of a logged-in reddit.com session, several separated by `\|`, for the `cookied-json` and `obscura-cookied-json` backends. **Secret.** |
 | `REDLIB_SOURCE_URL` | `https://github.com/Nachtalb/redlib` | Source code link in the footer, and the GitHub repository whose `main` branch the update check on error pages compares against. |
 | `REDLIB_LISTEN_PORT`, `REDLIB_LISTEN_ADDRESS`, `REDLIB_HSTS`, `REDLIB_IPV4_ONLY`, `REDLIB_IPV6_ONLY` | `8080`, `[::]`, `604800`, `off`, `off` | The listener options, so they also work in `redlib.toml`. The flags and `PORT`/`IPV4_ONLY`/`IPV6_ONLY` take precedence. Not `REDLIB_PORT`: Kubernetes sets that to `tcp://…` for a Service named `redlib`. |
 

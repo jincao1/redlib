@@ -435,10 +435,11 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_GIPHY`            | `["on", "off"]` | `on`                                   | Proxies GIPHY GIFs in comments and plays them inline. Set to `off` to leave them as plain links.          |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/Nachtalb/redlib`   | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
-| `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Scrapes post pages from Reddit's HTML when Reddit blocks them. See [Scrape fallback](#scrape-fallback). |
-| `ENABLE_GQL`              | `["on", "off"]` | `on`                                   | Loads pages Reddit blocks from its GraphQL API, before trying session cookies and scraping. |
+| `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Allows the `scraped` backend: comments scraped from Reddit's HTML. See [Scrape fallback](#scrape-fallback). |
+| `ENABLE_GQL`              | `["on", "off"]` | `on`                                   | Allows the `gql` backend: Reddit's GraphQL API. `off` never contacts it. |
+| `ENDPOINTS`, `ENDPOINTS_<KIND>` | List      | per kind                               | Which backends load Reddit data, in which order. See [Backend order](#backend-order). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
-| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
 | `LISTEN_PORT`             | Integer         | `8080`                                 | Port to listen on. `-p` and the `PORT` environment variable take precedence. |
 | `LISTEN_ADDRESS`          | String          | `[::]`                                 | Address to listen on. `-a` takes precedence. |
 | `HSTS`                    | Integer         | `604800`                               | `max-age` of the HSTS header in seconds. `-H` takes precedence. |
@@ -455,13 +456,41 @@ REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=...|reddit_session=...;token_v
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 
-With a session set, Redlib sends every Reddit API request through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser to `www.reddit.com`. It is only in the `ghcr.io/nachtalb/redlib:latest-obscura` image (amd64 only), or build with `cargo build --release --features obscura`. `latest` and default builds keep the plain HTTP client.
+The `ghcr.io/nachtalb/redlib:latest-obscura` image (amd64 only, or `cargo build --release --features obscura`) can also send a session's requests through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser: the `obscura-cookied-json` backend. `latest` and default builds don't have it.
 
 ### Scrape fallback
 
-When Reddit blocks a post page and no session gets through, Redlib scrapes the comments from the HTML Reddit serves logged-out visitors. It shows Reddit's first batch; "More comments" and "More replies" fetch more when clicked. To load more up front, set `REDLIB_SCRAPE_COMMENT_PREFETCH` to the number of extra requests per page, e.g. `5`.
+When the backends before it fail, the `scraped` backend loads a post page's comments from the HTML Reddit serves logged-out visitors. It shows Reddit's first batch; "More comments" and "More replies" fetch more when clicked. To load more up front, set `REDLIB_SCRAPE_COMMENT_PREFETCH` to the number of extra requests per page, e.g. `5`.
 
 Scraped pages cost Reddit extra requests and may break when Reddit changes its pages. Set `REDLIB_ENABLE_SCRAPE_FALLBACK=off` to show the block error instead.
+
+### Backend order
+
+<details>
+<summary>Which backend loads what, and how to change the order</summary>
+
+Redlib tries backends one after another until one returns the page or Reddit gives a real answer (not found, private, banned). Set the order per kind of request with `REDLIB_ENDPOINTS_<KIND>`, or for all kinds with `REDLIB_ENDPOINTS`. Backends left out are never used; ones without a session, or not in the build, are skipped. The log lists each kind's order at startup.
+
+```bash
+REDLIB_ENDPOINTS_COMMENTS="cookied-json,gql,scraped"
+```
+
+`json` is Reddit's API without an account, `cookied-json` the same with a session from `REDLIB_REDDIT_COOKIE`, `gql` Reddit's GraphQL API (what the Android app uses), `scraped` comments from the HTML Reddit serves logged-out visitors, and `obscura-cookied-json` a session through Obscura (`latest-obscura` only).
+
+| `<KIND>`     | `json`     | `cookied-json` | `gql` | `scraped` | `obscura-cookied-json` | Default order |
+| ------------ | ---------- | -------------- | ----- | --------- | ---------------------- | ------------- |
+| `POST`       | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
+| `COMMENTS`   | ⚠️ blocked | ✅             | ✅    | ✅        | ✅                     | gql, cookied-json, obscura-cookied-json, scraped, json |
+| `LISTING`    | ✅         | ✅             | ⚠️¹   | ❌        | ✅                     | json, gql, cookied-json, obscura-cookied-json |
+| `SUBREDDIT`  | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
+| `USER`       | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
+| `SEARCH`     | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
+| `WIKI`       | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |
+| `DUPLICATES` | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |
+
+¹ No feeds of several subreddits (`r/a+b`, the front page of your subscriptions), and only 8 posts per page on r/all.
+
+</details>
 
 ## Default user settings
 

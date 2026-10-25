@@ -1,9 +1,10 @@
 //! Where redlib gets Reddit data from.
 //!
 //! Every Reddit JSON request goes through [`json`]: it works out the request's
-//! [`Kind`], then tries each backend in [`BACKENDS`] that is available and can
-//! serve that kind, until one returns the page or Reddit gives a real answer
-//! (not found, private, …). A backend is one file in this directory with a type
+//! [`Kind`], then tries the backends configured for that kind one after another
+//! (`REDLIB_ENDPOINTS_<KIND>`, `REDLIB_ENDPOINTS` or [`Kind::default_order`]),
+//! until one returns the page or Reddit gives a real answer (not found,
+//! private, …). A backend is one file in this directory with a type
 //! implementing [`Backend`], plus one line in [`BACKENDS`].
 
 mod cookied_json;
@@ -13,12 +14,15 @@ mod json;
 pub mod obscura;
 pub mod scraped;
 
+use crate::config::get_setting;
 use crate::oauth::force_refresh_token;
+use crate::utils::param;
 use cached::proc_macro::cached;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::LazyLock;
 
 /// A place redlib can get Reddit's JSON from.
 pub trait Backend: Sync {
@@ -48,7 +52,7 @@ pub trait Backend: Sync {
 
 pub type Fetch<'a> = Pin<Box<dyn Future<Output = Result<Value, Failure>> + Send + 'a>>;
 
-/// Every backend, in the order they are tried.
+/// Every backend this build has.
 static BACKENDS: &[&dyn Backend] = &[
 	#[cfg(feature = "obscura")]
 	&obscura::ObscuraCookiedJson,
@@ -78,6 +82,30 @@ pub enum Kind {
 }
 
 impl Kind {
+	pub const ALL: [Self; 8] = [
+		Self::Post,
+		Self::Comments,
+		Self::Listing,
+		Self::Subreddit,
+		Self::User,
+		Self::Search,
+		Self::Wiki,
+		Self::Duplicates,
+	];
+
+	/// The backends tried when neither `REDLIB_ENDPOINTS_<KIND>` nor
+	/// `REDLIB_ENDPOINTS` is set. GraphQL is what the Android app uses, so it
+	/// goes first where its data is as good as the JSON API's; anonymous JSON is
+	/// always blocked for comments, so it goes last there.
+	fn default_order(self) -> &'static str {
+		match self {
+			Self::Post | Self::Subreddit | Self::User | Self::Search => "gql, json, cookied-json, obscura-cookied-json",
+			Self::Comments => "gql, cookied-json, obscura-cookied-json, scraped, json",
+			Self::Listing => "json, gql, cookied-json, obscura-cookied-json",
+			Self::Wiki | Self::Duplicates => "json, cookied-json, obscura-cookied-json",
+		}
+	}
+
 	pub fn name(self) -> &'static str {
 		match self {
 			Self::Post => "post",
@@ -123,9 +151,79 @@ pub enum Failure {
 	Final(String),
 }
 
+type Order = Vec<&'static dyn Backend>;
+
+/// The backends named in the comma-separated `list`, without duplicates, and
+/// the names that aren't backends of this build.
+fn parse_order(list: &str) -> (Order, Vec<String>) {
+	let mut order: Order = Vec::new();
+	let mut unknown = Vec::new();
+	for name in list.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+		match BACKENDS.iter().find(|backend| backend.name() == name.to_lowercase()) {
+			Some(backend) if !order.iter().any(|known| known.name() == backend.name()) => order.push(*backend),
+			Some(_) => {}
+			None => unknown.push(name.to_string()),
+		}
+	}
+	(order, unknown)
+}
+
+/// The configured order for `kind`: `REDLIB_ENDPOINTS_<KIND>`, else
+/// `REDLIB_ENDPOINTS`, else the default. Logs names it can't use.
+fn configured_order(kind: Kind) -> Order {
+	let key = format!("REDLIB_ENDPOINTS_{}", kind.name().to_uppercase());
+	let setting = |key: &str| get_setting(key).filter(|list| !list.trim().is_empty());
+	let (setting, list) = match setting(&key) {
+		Some(list) => (key, list),
+		None => match setting("REDLIB_ENDPOINTS") {
+			Some(list) => ("REDLIB_ENDPOINTS".to_string(), list),
+			None => return parse_order(kind.default_order()).0,
+		},
+	};
+	let (order, unknown) = parse_order(&list);
+	for name in unknown {
+		let known: Vec<&str> = BACKENDS.iter().map(|backend| backend.name()).collect();
+		warn!("{setting}: unknown backend {name:?}, this build has {}", known.join(", "));
+	}
+	for backend in order.iter().filter(|backend| !backend.supports(kind)) {
+		warn!("{setting}: {} can't serve {} requests, skipping it", backend.name(), kind.name());
+	}
+	if order.is_empty() {
+		warn!("{setting} names no backend, using the default for {}", kind.name());
+		return parse_order(kind.default_order()).0;
+	}
+	order
+}
+
+static ORDERS: LazyLock<Vec<Order>> = LazyLock::new(|| Kind::ALL.map(configured_order).to_vec());
+
+/// The order backends are tried in for `kind` on this instance.
+fn order(kind: Kind) -> &'static [&'static dyn Backend] {
+	&ORDERS[kind as usize]
+}
+
+/// Logs the backends each kind of request uses, and any setting it can't use.
+pub fn log_orders() {
+	for kind in Kind::ALL {
+		let usable: Vec<&str> = order(kind).iter().filter(|b| b.available() && b.supports(kind)).map(|b| b.name()).collect();
+		info!("Backends for {}: {}", kind.name(), usable.join(", "));
+	}
+}
+
 /// Fetches `path` from Reddit's JSON API or whichever backend serves it.
 pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	fetch(path, quarantine).await.map(|(json, _)| json)
+}
+
+/// The backend whose "more comments" cursor `path` carries. Only that backend
+/// can load the batch the cursor points at, whatever the configured order.
+fn cursor_owner(path: &str) -> Option<&'static str> {
+	let query = format!("?{}", path.split_once('?')?.1);
+	param(&query, "more_cursor")?;
+	Some(match param(&query, "more_query") {
+		Some(query) if query == gql::MORE_QUERY => "gql",
+		_ => "scraped",
+	})
 }
 
 /// Fetches `path` from the first backend that serves it, and names that backend.
@@ -135,7 +233,11 @@ pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static st
 	let mut blocked = false;
 	let mut last_error = None;
 
-	for backend in BACKENDS.iter().filter(|backend| backend.available() && backend.supports(kind)) {
+	let backends: Order = match cursor_owner(&path).filter(|_| kind == Kind::Comments) {
+		Some(owner) => BACKENDS.iter().copied().filter(|backend| backend.name() == owner).collect(),
+		None => order(kind).to_vec(),
+	};
+	for backend in backends.into_iter().filter(|backend| backend.available() && backend.supports(kind)) {
 		let error = match backend.fetch(&path, quarantine).await {
 			Ok(json) => return Ok((json, backend.name())),
 			Err(Failure::Unsupported) => {
@@ -248,6 +350,74 @@ pub fn is_blocked_error(msg: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sealed_test::prelude::*;
+
+	fn names(order: &[&dyn Backend]) -> Vec<&'static str> {
+		order.iter().map(|backend| backend.name()).collect()
+	}
+
+	/// `expected` without the backends this build doesn't have.
+	fn in_build<'a>(expected: &[&'a str]) -> Vec<&'a str> {
+		expected.iter().copied().filter(|name| BACKENDS.iter().any(|backend| backend.name() == *name)).collect()
+	}
+
+	#[test]
+	fn test_cursor_owner() {
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?sort=top&raw_json=1"), None);
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz&more_query=gql&raw_json=1"), Some("gql"));
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz&more_query=top&raw_json=1"), Some("scraped"));
+		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz"), Some("scraped"));
+	}
+
+	#[test]
+	fn test_parse_order() {
+		let (order, unknown) = parse_order(" GQL ,json,, scraped,gql, foo ");
+		assert_eq!(names(&order), ["gql", "json", "scraped"]);
+		assert_eq!(unknown, ["foo"]);
+	}
+
+	#[test]
+	fn test_default_orders_name_only_backends_that_serve_the_kind() {
+		for kind in Kind::ALL {
+			let (order, _) = parse_order(kind.default_order());
+			assert!(order.iter().all(|backend| backend.supports(kind)), "{kind:?}");
+		}
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_default_order() {
+		assert_eq!(names(order(Kind::Comments)), in_build(&["gql", "cookied-json", "obscura-cookied-json", "scraped", "json"]));
+		assert_eq!(names(order(Kind::Listing)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_ENDPOINTS", "json, cookied-json"), ("REDLIB_ENDPOINTS_COMMENTS", "scraped,gql")])]
+	fn test_configured_order() {
+		assert_eq!(names(order(Kind::Comments)), ["scraped", "gql"]);
+		assert_eq!(names(order(Kind::User)), ["json", "cookied-json"]);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_ENDPOINTS", ""), ("REDLIB_ENDPOINTS_LISTING", "gql")])]
+	fn test_empty_setting_means_unset() {
+		assert_eq!(names(order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(order(Kind::Listing)), ["gql"]);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_ENDPOINTS_USER", "nonsense")])]
+	fn test_unusable_order_falls_back_to_the_default() {
+		assert_eq!(names(order(Kind::User)), in_build(&["gql", "json", "cookied-json", "obscura-cookied-json"]));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_order_from_config_file() {
+		std::fs::write("redlib.toml", "REDLIB_ENDPOINTS_SEARCH = \"json\"").unwrap();
+		assert_eq!(names(order(Kind::Search)), ["json"]);
+	}
 
 	#[test]
 	fn test_kind_of_path() {
