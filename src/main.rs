@@ -517,7 +517,7 @@ async fn fetch_instances() -> Result<String, String> {
 }
 
 async fn fetch_text(url: &str) -> Result<String, String> {
-	let response = CLIENT.get(url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
+	let response = CLIENT.load_full().get(url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
 	response.text().await.map_err(|e| e.to_string())
 }
 

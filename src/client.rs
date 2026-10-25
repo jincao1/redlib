@@ -15,8 +15,9 @@ use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 use std::sync::{Arc, LazyLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use wreq::cookie::Jar;
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
@@ -52,7 +53,7 @@ const REDDIT_COOKIE_SETTING: &str = "REDLIB_REDDIT_COOKIE";
 /// most; anything larger is a configuration mistake.
 const REDDIT_COOKIE_MAX_LEN: usize = 8192;
 
-pub static CLIENT: LazyLock<WreqClient> = LazyLock::new(build_client);
+pub static CLIENT: LazyLock<ArcSwap<WreqClient>> = LazyLock::new(|| ArcSwap::from_pointee(build_client()));
 
 pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| {
 	let client = block_on(Oauth::new());
@@ -103,6 +104,11 @@ const EMULATIONS: &[(Profile, &[Platform])] = {
 /// Index into the flattened `EMULATIONS` pairs of the emulation in use.
 static EMULATION: AtomicUsize = AtomicUsize::new(usize::MAX);
 
+/// Unix time of the last emulation switch, so a burst of blocked requests
+/// switches only once.
+static LAST_REROLL: AtomicU64 = AtomicU64::new(0);
+const REROLL_COOLDOWN_SECS: u64 = 60;
+
 fn emulation_pairs() -> impl Iterator<Item = (Profile, Platform)> {
 	EMULATIONS
 		.iter()
@@ -127,6 +133,19 @@ pub fn build_client() -> WreqClient {
 		.redirect(Policy::none())
 		.build()
 		.expect("Should always be able to build a client")
+}
+
+/// Switches `CLIENT` to another browser emulation, at most once per
+/// `REROLL_COOLDOWN_SECS`. Returns whether it switched.
+fn reroll_client() -> bool {
+	let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+	let last = LAST_REROLL.load(Ordering::Relaxed);
+	if now.saturating_sub(last) < REROLL_COOLDOWN_SECS || LAST_REROLL.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+		return false;
+	}
+	warn!("Reddit refused every session, switching the browser emulation");
+	CLIENT.store(Arc::new(build_client()));
+	true
 }
 
 /// The `Cookie` headers of logged-in reddit.com sessions, from configuration.
@@ -184,7 +203,7 @@ fn sanitize_cookie(raw: &str) -> Option<String> {
 async fn reddit_web_get(path: &str, cookie: &str) -> Result<WreqResponse, String> {
 	let url = format!("{ALTERNATIVE_REDDIT_URL_BASE}{path}");
 
-	CLIENT.get(&url).header(wreq_header::COOKIE, cookie).send().await.map_err(|e| e.to_string())
+	CLIENT.load_full().get(&url).header(wreq_header::COOKIE, cookie).send().await.map_err(|e| e.to_string())
 }
 
 /// Gets the canonical path for a resource on Reddit. This is accomplished by
@@ -286,7 +305,7 @@ pub async fn proxy(req: HyperRequest<Body>, format: &str) -> Result<HyperRespons
 	// First parameter is target URL (mandatory).
 	let wreq_uri = wreq::Uri::try_from(url).map_err(|_| "Couldn't parse URL".to_string())?;
 
-	let mut builder = CLIENT.get(wreq_uri);
+	let mut builder = CLIENT.load_full().get(wreq_uri);
 
 	// Copy useful headers from original request
 	for &key in &["Range", "If-Modified-Since", "Cache-Control"] {
@@ -357,10 +376,11 @@ async fn shreddit_request(path: &str, cursor: Option<&str>) -> Result<Option<Str
 
 	let builder = match cursor {
 		Some(cursor) => CLIENT
+			.load_full()
 			.post(&url)
 			.header(wreq_header::CONTENT_TYPE, "application/x-www-form-urlencoded")
 			.body(url::form_urlencoded::Serializer::new(String::new()).append_pair("cursor", cursor).finish()),
-		None => CLIENT.get(&url),
+		None => CLIENT.load_full().get(&url),
 	};
 
 	let response = builder
@@ -438,7 +458,7 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
 	fastrand::shuffle(&mut headers);
 
-	let mut builder = CLIENT.request(method.clone(), &url);
+	let mut builder = CLIENT.load_full().request(method.clone(), &url);
 
 	for (key, value) in headers {
 		builder = builder.header(key, value);
@@ -553,20 +573,16 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			// page and HTTP 403. The same path on the web host returns JSON
 			// once it carries a user session, so retry it there. Sessions take
 			// turns; a refused one passes the request on to the next.
+			// When every session is refused, Reddit may have flagged the
+			// browser emulation, so switch to another one and try once more.
 			if response.status() == wreq::StatusCode::FORBIDDEN && !sessions.is_empty() {
-				let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
-				for i in 0..sessions.len() {
-					let (number, cookie) = &sessions[(start + i) % sessions.len()];
-					match reddit_web_get(&path, cookie).await {
-						Ok(web_response) if web_response.status().is_success() => {
-							trace!("Retried {path} with session #{number}: status {}", web_response.status());
-							response = web_response;
-							from_web_session = true;
-							break;
-						}
-						Ok(web_response) => warn!("Session #{number} was refused for {path}: status {}", web_response.status()),
-						Err(e) => warn!("Couldn't reach Reddit's web host for {path}: {e}"),
-					}
+				let mut web_response = web_session_get(&path, &sessions).await;
+				if web_response.is_none() && reroll_client() {
+					web_response = web_session_get(&path, &sessions).await;
+				}
+				if let Some(web_response) = web_response {
+					response = web_response;
+					from_web_session = true;
 				}
 			}
 
@@ -652,6 +668,24 @@ async fn gql_fallback(path: &str, quarantine: bool) -> Option<Value> {
 			None
 		}
 	}
+}
+
+/// Tries `path` on Reddit's web host with each session in turn, starting at a
+/// rotating index, and returns the first successful response.
+async fn web_session_get(path: &str, sessions: &[(usize, String)]) -> Option<WreqResponse> {
+	let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
+	for i in 0..sessions.len() {
+		let (number, cookie) = &sessions[(start + i) % sessions.len()];
+		match reddit_web_get(path, cookie).await {
+			Ok(web_response) if web_response.status().is_success() => {
+				trace!("Retried {path} with session #{number}: status {}", web_response.status());
+				return Some(web_response);
+			}
+			Ok(web_response) => warn!("Session #{number} was refused for {path}: status {}", web_response.status()),
+			Err(e) => warn!("Couldn't reach Reddit's web host for {path}: {e}"),
+		}
+	}
+	None
 }
 
 /// Fetches `path` from Reddit's web host through Obscura as a logged-in session.
@@ -915,6 +949,15 @@ mod tests {
 			build_client();
 			assert_ne!(EMULATION.load(Ordering::Relaxed), before);
 		}
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_reroll_waits_for_the_cooldown() {
+		assert!(reroll_client());
+		assert!(!reroll_client());
+		LAST_REROLL.store(LAST_REROLL.load(Ordering::Relaxed) - REROLL_COOLDOWN_SECS, Ordering::Relaxed);
+		assert!(reroll_client());
 	}
 
 	#[test]
