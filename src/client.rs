@@ -163,6 +163,7 @@ pub(crate) fn reroll_client() -> bool {
 	}
 	warn!("Reddit refused every session, switching the browser emulation");
 	CLIENT.store(Arc::new(build_client()));
+	crate::redgifs::clear_token();
 	true
 }
 

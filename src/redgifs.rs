@@ -71,6 +71,13 @@ async fn get_token() -> Result<String, String> {
 	Ok(token)
 }
 
+/// Forgets the cached token; called when the client switches its User-Agent.
+pub(crate) fn clear_token() {
+	if let Ok(mut cache) = REDGIFS_TOKEN.lock() {
+		cache.0.clear();
+	}
+}
+
 async fn get_json(url: &str, token: Option<&str>) -> Result<Value, String> {
 	let mut builder = CLIENT
 		.load_full()
