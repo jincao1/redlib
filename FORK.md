@@ -36,6 +36,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
 - **Share links to posts on a user's profile** (`/u/<name>/s/<id>`) showed "Nothing here" ([redlib-org#560](https://github.com/redlib-org/redlib/pull/560)).
 - **Videos transcoded by Reddit** (`rich:video`, e.g. external GIF hosts) had no player; CMAF video format is supported ([redlib-org#549](https://github.com/redlib-org/redlib/pull/549)).
+- **Video Speed Controller overlays landed in the wrong place**: post media, comment images and the comment sidebar had no positioned container ([Sparronator9999 `ed63495`](https://github.com/Sparronator9999/redlib/commit/ed63495b12cf5d6b66d87c0ed43055e498423a08)).
 - **Inconsistent margins** inside posts and comments, and headings without margins; empty zero-width-space paragraphs no longer add gaps ([redlib-org#413](https://github.com/redlib-org/redlib/pull/413)).
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
