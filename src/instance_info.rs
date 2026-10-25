@@ -128,7 +128,7 @@ impl InstanceInfo {
 		}
 	}
 	fn to_table(&self) -> String {
-		let mut container = Container::default();
+		let mut container = Container::default().with_attributes([("id", "instance_info")]);
 		if let Some(banner) = &self.config.banner {
 			container.add_header(3, "Instance banner");
 			container.add_raw("<br />");

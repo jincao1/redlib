@@ -1978,6 +1978,22 @@ body.update_footer_shown {
     color: var(--accent);
 }
 
+/* Instance info: every table as wide as the widest one; the score explanation doesn't widen them */
+#instance_info {
+    display: inline-block;
+}
+
+#instance_info table {
+    width: 100%;
+}
+
+#instance_info details {
+    width: 0;
+    min-width: 100%;
+    margin: 15px 0;
+    text-align: left;
+}
+
 /* Messages */
 
 #duplicates_msg h3 {
