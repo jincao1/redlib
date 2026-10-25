@@ -57,6 +57,10 @@ impl Backend for ObscuraCookiedJson {
 		true
 	}
 
+	fn cost(&self) -> f64 {
+		2.0
+	}
+
 	fn fetch<'a>(&'a self, path: &'a str, _quarantine: bool) -> Fetch<'a> {
 		Box::pin(async move {
 			let (status, body) = get(path).await.map_err(|e| Failure::Network(format!("Couldn't send request to Reddit: {e} | {path}")))?;

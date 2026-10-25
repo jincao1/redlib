@@ -4,7 +4,8 @@
 //! [`Kind`], then tries the backends configured for that kind one after another
 //! (`REDLIB_ENDPOINTS_<KIND>`, `REDLIB_ENDPOINTS` or [`Kind::default_order`]),
 //! until one returns the page or Reddit gives a real answer (not found,
-//! private, …). A backend is one file in this directory with a type
+//! private, …). [`score`] reorders the configured backends by how well they
+//! have been doing lately. A backend is one file in this directory with a type
 //! implementing [`Backend`], plus one line in [`BACKENDS`].
 
 mod cookied_json;
@@ -12,6 +13,7 @@ pub mod gql;
 mod json;
 #[cfg(feature = "obscura")]
 pub mod obscura;
+mod score;
 pub mod scraped;
 
 use crate::config::get_setting;
@@ -19,10 +21,12 @@ use crate::oauth::force_refresh_token;
 use crate::utils::param;
 use cached::proc_macro::cached;
 use log::{debug, error, info, warn};
+use score::{Outcome, Ranking};
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 /// A place redlib can get Reddit's JSON from.
 pub trait Backend: Sync {
@@ -43,6 +47,12 @@ pub trait Backend: Sync {
 	/// when the visitor opted in, so those pages need a logged-out backend.
 	fn logged_in(&self) -> bool {
 		false
+	}
+
+	/// What one attempt costs compared to the others. Sessions cost more: they
+	/// use up the account's request budget and put the account at risk.
+	fn cost(&self) -> f64 {
+		1.0
 	}
 
 	/// `path` (a JSON API path like `/r/rust/hot.json?raw_json=1`) in the
@@ -195,18 +205,59 @@ fn configured_order(kind: Kind) -> Order {
 	order
 }
 
-static ORDERS: LazyLock<Vec<Order>> = LazyLock::new(|| Kind::ALL.map(configured_order).to_vec());
+static RANKINGS: LazyLock<Vec<Mutex<Ranking>>> = LazyLock::new(|| {
+	let now = Instant::now();
+	Kind::ALL.map(|kind| Mutex::new(Ranking::new(configured_order(kind), now))).into()
+});
 
-/// The order backends are tried in for `kind` on this instance.
-fn order(kind: Kind) -> &'static [&'static dyn Backend] {
-	&ORDERS[kind as usize]
+fn ranking(kind: Kind) -> MutexGuard<'static, Ranking> {
+	RANKINGS[kind as usize].lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The order backends are tried in for `kind` right now.
+fn order(kind: Kind) -> Order {
+	ranking(kind).order(Instant::now())
+}
+
+fn usable(kind: Kind, backend: &dyn Backend) -> bool {
+	backend.available() && backend.supports(kind)
 }
 
 /// Logs the backends each kind of request uses, and any setting it can't use.
 pub fn log_orders() {
 	for kind in Kind::ALL {
-		let usable: Vec<&str> = order(kind).iter().filter(|b| b.available() && b.supports(kind)).map(|b| b.name()).collect();
-		info!("Backends for {}: {}", kind.name(), usable.join(", "));
+		let names: Vec<&str> = ranking(kind).configured().iter().filter(|b| usable(kind, **b)).map(|b| b.name()).collect();
+		info!("Backends for {}: {}", kind.name(), names.join(", "));
+	}
+}
+
+/// Each kind with its usable backends in their current order and their
+/// success rates, like `gql 92%, json 40%`.
+pub fn status() -> Vec<(&'static str, String)> {
+	let now = Instant::now();
+	Kind::ALL
+		.iter()
+		.map(|&kind| {
+			let rates: Vec<String> = ranking(kind)
+				.rates(now)
+				.into_iter()
+				.filter(|(name, _)| BACKENDS.iter().any(|b| b.name() == *name && usable(kind, *b)))
+				.map(|(name, rate)| format!("{name} {:.0}%", rate * 100.0))
+				.collect();
+			(kind.name(), rates.join(", "))
+		})
+		.collect()
+}
+
+/// How a backend's attempt counts for its score; `None` doesn't count.
+fn outcome(result: &Result<Value, Failure>, quarantine_hidden: bool) -> Option<Outcome> {
+	match result {
+		Ok(_) => Some(Outcome::Success),
+		Err(Failure::Unsupported) => None,
+		Err(Failure::Final(msg)) if quarantine_hidden && (msg == "quarantined" || msg == "gated") => None,
+		Err(Failure::Final(_)) => Some(Outcome::Success),
+		Err(Failure::Network(_)) => Some(Outcome::NetworkError),
+		Err(Failure::Blocked | Failure::RateLimited(_) | Failure::Invalid(_)) => Some(Outcome::Failure),
 	}
 }
 
@@ -235,10 +286,14 @@ pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static st
 
 	let backends: Order = match cursor_owner(&path).filter(|_| kind == Kind::Comments) {
 		Some(owner) => BACKENDS.iter().copied().filter(|backend| backend.name() == owner).collect(),
-		None => order(kind).to_vec(),
+		None => order(kind),
 	};
-	for backend in backends.into_iter().filter(|backend| backend.available() && backend.supports(kind)) {
-		let error = match backend.fetch(&path, quarantine).await {
+	for backend in backends.into_iter().filter(|backend| usable(kind, *backend)) {
+		let result = backend.fetch(&path, quarantine).await;
+		if let Some(outcome) = outcome(&result, quarantine && backend.logged_in()) {
+			ranking(kind).record(backend.name(), outcome, Instant::now());
+		}
+		let error = match result {
 			Ok(json) => return Ok((json, backend.name())),
 			Err(Failure::Unsupported) => {
 				debug!("{} can't serve {path}", backend.name());
@@ -387,36 +442,36 @@ mod tests {
 	#[test]
 	#[sealed_test]
 	fn test_default_order() {
-		assert_eq!(names(order(Kind::Comments)), in_build(&["gql", "cookied-json", "obscura-cookied-json", "scraped", "json"]));
-		assert_eq!(names(order(Kind::Listing)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
-		assert_eq!(names(order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::Comments)), in_build(&["gql", "cookied-json", "obscura-cookied-json", "scraped", "json"]));
+		assert_eq!(names(&order(Kind::Listing)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
 	}
 
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS", "json, cookied-json"), ("REDLIB_ENDPOINTS_COMMENTS", "scraped,gql")])]
 	fn test_configured_order() {
-		assert_eq!(names(order(Kind::Comments)), ["scraped", "gql"]);
-		assert_eq!(names(order(Kind::User)), ["json", "cookied-json"]);
+		assert_eq!(names(&order(Kind::Comments)), ["scraped", "gql"]);
+		assert_eq!(names(&order(Kind::User)), ["json", "cookied-json"]);
 	}
 
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS", ""), ("REDLIB_ENDPOINTS_LISTING", "gql")])]
 	fn test_empty_setting_means_unset() {
-		assert_eq!(names(order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
-		assert_eq!(names(order(Kind::Listing)), ["gql"]);
+		assert_eq!(names(&order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::Listing)), ["gql"]);
 	}
 
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS_USER", "nonsense")])]
 	fn test_unusable_order_falls_back_to_the_default() {
-		assert_eq!(names(order(Kind::User)), in_build(&["gql", "json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::User)), in_build(&["gql", "json", "cookied-json", "obscura-cookied-json"]));
 	}
 
 	#[test]
 	#[sealed_test]
 	fn test_order_from_config_file() {
 		std::fs::write("redlib.toml", "REDLIB_ENDPOINTS_SEARCH = \"json\"").unwrap();
-		assert_eq!(names(order(Kind::Search)), ["json"]);
+		assert_eq!(names(&order(Kind::Search)), ["json"]);
 	}
 
 	#[test]
