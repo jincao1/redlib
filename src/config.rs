@@ -284,6 +284,113 @@ mod tests {
 		assert!(result.is_ok(), "Error: {}", result.unwrap_err());
 	}
 
+	/// Every `#[serde(<kind> = "...")]` name in this file, so new settings are covered automatically.
+	fn serde_names(kind: &str) -> Vec<String> {
+		let marker = format!("#[serde({kind} = \"");
+		include_str!("config.rs")
+			.lines()
+			.filter_map(|line| line.trim().strip_prefix(marker.as_str())?.strip_suffix("\")]").map(str::to_string))
+			.collect()
+	}
+
+	fn parsed(file: &str) -> Config {
+		Config::parse_file(file).unwrap_or_else(|e| panic!("{file:?} didn't parse: {e}"))
+	}
+
+	#[test]
+	fn test_every_setting_reads_every_value_type() {
+		let keys = serde_names("rename");
+		assert!(keys.len() > 30, "found only {} settings", keys.len());
+		for key in &keys {
+			for (value, expected) in [
+				("\"text\"", "text"),
+				("\"\"", ""),
+				("7", "7"),
+				("-1", "-1"),
+				("1.5", "1.5"),
+				("true", "on"),
+				("false", "off"),
+			] {
+				let config = parsed(&format!("{key} = {value}"));
+				assert_eq!(get_setting_from_config(key, &config).as_deref(), Some(expected), "{key} = {value}");
+			}
+		}
+	}
+
+	#[test]
+	fn test_every_legacy_name_reads_into_its_setting() {
+		let aliases = serde_names("alias");
+		assert!(!aliases.is_empty());
+		for alias in &aliases {
+			let config = parsed(&format!("{alias} = 3"));
+			let key = alias.replace("LIBREDDIT_", "REDLIB_");
+			assert_eq!(get_setting_from_config(&key, &config).as_deref(), Some("3"), "{alias}");
+		}
+	}
+
+	#[test]
+	fn test_full_config_with_mixed_value_types() {
+		let keys = serde_names("rename");
+		let file: String = keys
+			.iter()
+			.enumerate()
+			.map(|(i, key)| match i % 3 {
+				0 => format!("{key} = \"v{i}\"\n"),
+				1 => format!("{key} = {i}\n"),
+				_ => format!("{key} = {}\n", i % 2 == 0),
+			})
+			.collect();
+		let config = parsed(&file);
+		for (i, key) in keys.iter().enumerate() {
+			let expected = match i % 3 {
+				0 => format!("v{i}"),
+				1 => i.to_string(),
+				_ => if i % 2 == 0 { "on" } else { "off" }.to_string(),
+			};
+			assert_eq!(get_setting_from_config(key, &config), Some(expected), "{key}");
+		}
+	}
+
+	#[test]
+	fn test_file_layout_variations() {
+		for file in [
+			"",
+			"# only a comment\n",
+			"\n\n   \n",
+			"REDLIB_DEFAULT_THEME = \"dark\" # trailing comment\r\nREDLIB_DEFAULT_WIDE = true\r\n",
+			"REDLIB_DEFAULT_THEME='dark'\nREDLIB_DEFAULT_WIDE=true",
+			"\"REDLIB_DEFAULT_THEME\" = \"\"\"dark\"\"\"\nREDLIB_DEFAULT_WIDE = true\n",
+			"SOME_UNKNOWN_SETTING = 1\nREDLIB_DEFAULT_THEME = \"dark\"\nREDLIB_DEFAULT_WIDE = true\n",
+			"REDLIB_DEFAULT_THEME = \"dark\"\nREDLIB_DEFAULT_WIDE = true\nREDLIB_UNUSED = [1, \"a\"]\nREDLIB_ALSO_UNUSED = { a = 1 }\n",
+		] {
+			let config = parsed(file);
+			if file.contains("REDLIB_DEFAULT_THEME") {
+				assert_eq!(get_setting_from_config("REDLIB_DEFAULT_THEME", &config).as_deref(), Some("dark"), "{file:?}");
+				assert_eq!(get_setting_from_config("REDLIB_DEFAULT_WIDE", &config).as_deref(), Some("on"), "{file:?}");
+			}
+		}
+	}
+
+	#[test]
+	fn test_invalid_files_are_errors() {
+		for file in [
+			"REDLIB_DEFAULT_THEME = dark",
+			"REDLIB_DEFAULT_THEME = \"dark",
+			"REDLIB_DEFAULT_THEME",
+			"A = 1\nA = 2",
+			"[section\n",
+		] {
+			assert!(Config::parse_file(file).is_err(), "{file:?} parsed");
+		}
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_invalid_file_falls_back_to_defaults() {
+		write("redlib.toml", "REDLIB_DEFAULT_THEME = dark").unwrap();
+		assert_eq!(get_setting("REDLIB_DEFAULT_THEME"), None);
+	}
+
 	#[test]
 	#[sealed_test]
 	fn test_config_numbers_and_booleans() {
