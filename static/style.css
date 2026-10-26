@@ -393,6 +393,11 @@ body > footer {
     opacity: 0.8;
 }
 
+#source svg {
+    vertical-align: -2px;
+    margin-right: 0.3em;
+}
+
 /* / Body footer. */
 
 /* Footer in content block. */
@@ -412,6 +417,10 @@ button {
     background: none;
     border: none;
     font-weight: bold;
+    cursor: pointer;
+}
+
+summary {
     cursor: pointer;
 }
 
@@ -603,6 +612,7 @@ aside {
 
 #feeds > summary {
     padding: 8px 15px;
+    cursor: pointer;
 }
 
 #feed_list {
@@ -1139,6 +1149,7 @@ a.search_subreddit:hover {
     width: auto;
     height: auto;
     overflow: hidden;
+    position: relative;
 }
 
 .post_media_video {
@@ -1417,6 +1428,7 @@ a.search_subreddit:hover {
 .comment img {
     max-width: 50%;
     height: auto;
+    position: relative;
 }
 
 .giphy-embed {
@@ -1447,6 +1459,7 @@ a.search_subreddit:hover {
     min-width: 50px;
     padding: var(--comment-v-space) 0;
     align-items: center;
+    position: relative;
 }
 
 .comment_title {
@@ -1971,6 +1984,22 @@ body.update_footer_shown {
     color: var(--accent);
 }
 
+/* Instance info: every table as wide as the widest one; the score explanation doesn't widen them */
+#instance_info {
+    display: inline-block;
+}
+
+#instance_info table {
+    width: 100%;
+}
+
+#instance_info details {
+    width: 0;
+    min-width: 100%;
+    margin: 15px 0;
+    text-align: left;
+}
+
 /* Messages */
 
 #duplicates_msg h3 {
@@ -2183,10 +2212,6 @@ body.update_footer_shown {
 }
 
 @media screen and (max-width: 507px) {
-    #version {
-        display: none;
-    }
-
     .post {
         grid-template:
             "post_header post_header post_thumbnail" auto

@@ -103,6 +103,17 @@ async fn reddit_health() -> Result<Response<Body>, String> {
 	)
 }
 
+/// shields.io endpoint badge of the same status, always 200 so shields renders it.
+async fn reddit_badge() -> Result<Response<Body>, String> {
+	Ok(
+		Response::builder()
+			.header("content-type", "application/json")
+			.header("Cache-Control", "no-store")
+			.body(redlib::reddit_health::badge().into())
+			.unwrap_or_default(),
+	)
+}
+
 async fn style() -> Result<Response<Body>, String> {
 	let mut res = include_str!("../static/style.css").to_string();
 	for file in ThemeAssets::iter() {
@@ -128,6 +139,11 @@ async fn main() {
 	// Initialize logger
 	pretty_env_logger::init();
 
+	// The listener settings can also come from `REDLIB_*` settings (env or
+	// redlib.toml); the flags and the older env names take precedence.
+	let setting_or = |key: &str, default: &str| -> &'static str { config::get_setting(key).unwrap_or_else(|| default.to_string()).leak() };
+	let setting_on = |key: &str| config::get_setting(key).as_deref() == Some("on");
+
 	let matches = Command::new("Redlib")
 		.version(env!("CARGO_PKG_VERSION"))
 		.about("Private front-end for Reddit written in Rust ")
@@ -146,7 +162,7 @@ async fn main() {
 				.long("address")
 				.value_name("ADDRESS")
 				.help("Sets address to listen on")
-				.default_value("[::]")
+				.default_value(setting_or("REDLIB_LISTEN_ADDRESS", "[::]"))
 				.num_args(1),
 		)
 		.arg(
@@ -156,7 +172,8 @@ async fn main() {
 				.value_name("PORT")
 				.env("PORT")
 				.help("Port to listen on")
-				.default_value("8080")
+				.default_value(setting_or("REDLIB_LISTEN_PORT", "8080"))
+				.value_parser(clap::value_parser!(u16))
 				.action(ArgAction::Set)
 				.num_args(1),
 		)
@@ -166,10 +183,12 @@ async fn main() {
 				.long("hsts")
 				.value_name("EXPIRE_TIME")
 				.help("HSTS header to tell browsers that this site should only be accessed over HTTPS")
-				.default_value("604800")
+				.default_value(setting_or("REDLIB_HSTS", "604800"))
 				.num_args(1),
 		)
 		.get_matches();
+
+	redlib::backends::log_orders();
 
 	match rate_limit_check().await {
 		Ok(()) => {
@@ -186,18 +205,25 @@ async fn main() {
 	}
 
 	let address = matches.get_one::<String>("address").unwrap();
-	let port = matches.get_one::<String>("port").unwrap();
+	let port = matches.get_one::<u16>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
 
-	let ipv4_only = std::env::var("IPV4_ONLY").is_ok() || matches.get_flag("ipv4-only");
-	let ipv6_only = std::env::var("IPV6_ONLY").is_ok() || matches.get_flag("ipv6-only");
+	// `-4`/`-6` on the command line decide alone; otherwise the env names, then the settings.
+	let (ipv4_only, ipv6_only) = match (matches.get_flag("ipv4-only"), matches.get_flag("ipv6-only")) {
+		(false, false) => (
+			std::env::var("IPV4_ONLY").is_ok() || setting_on("REDLIB_IPV4_ONLY"),
+			std::env::var("IPV6_ONLY").is_ok() || setting_on("REDLIB_IPV6_ONLY"),
+		),
+		flags => flags,
+	};
+	redlib::client::IPV6_ONLY.store(ipv6_only, std::sync::atomic::Ordering::Relaxed);
 
 	let listener = if ipv4_only {
 		format!("0.0.0.0:{port}")
 	} else if ipv6_only {
 		format!("[::]:{port}")
 	} else {
-		[address, ":", port].concat()
+		format!("{address}:{port}")
 	};
 
 	println!("Starting Redlib...");
@@ -234,6 +260,7 @@ async fn main() {
 
 	app.at("/healthz").get(|_| resource("ok", "text/plain", false).boxed());
 	app.at("/healthz/reddit").get(|_| reddit_health().boxed());
+	app.at("/healthz/reddit.json").get(|_| reddit_badge().boxed());
 
 	// Read static files
 	app.at("/style.css").get(|_| style().boxed());
@@ -508,7 +535,7 @@ async fn fetch_instances() -> Result<String, String> {
 }
 
 async fn fetch_text(url: &str) -> Result<String, String> {
-	let response = CLIENT.get(url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
+	let response = CLIENT.load_full().get(url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
 	response.text().await.map_err(|e| e.to_string())
 }
 

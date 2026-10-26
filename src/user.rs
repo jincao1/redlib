@@ -4,7 +4,7 @@ use crate::utils::{
 	build_rss_items, enable_rss, error, filter_posts, format_url, get_filters, nsfw_landing, param, rss_page_link, rss_response, setting, should_be_nsfw_gated, template, Post,
 	Preferences, User, RSS_USER_LISTINGS,
 };
-use crate::{client::json, server::RequestExt};
+use crate::{backends::json, server::RequestExt};
 use askama::Template;
 use hyper::{Request, Response};
 use rss::ChannelBuilder;
@@ -170,6 +170,7 @@ mod tests {
 	use super::*;
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_user() {
 		let user = user("spez").await;
 		assert!(user.is_ok());

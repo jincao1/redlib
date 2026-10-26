@@ -4,7 +4,7 @@
 use crate::body::Body;
 use crate::config::{self, get_setting};
 use crate::redgifs;
-use crate::{client::json, server::RequestExt};
+use crate::{backends::json, server::RequestExt};
 use askama::Template;
 use chrono::DateTime;
 use clearurls::UrlCleaner;
@@ -566,7 +566,6 @@ pub struct ErrorTemplate {
 	pub reddit_url: String,
 	/// Show instance hosts how to get past Reddit's block.
 	pub blocked: bool,
-	pub obscura: bool,
 	pub prefs: Preferences,
 	pub url: String,
 }
@@ -1515,8 +1514,7 @@ pub async fn error(req: Request<Body>, msg: &str) -> Result<Response<Body>, Stri
 		} else {
 			path.to_string()
 		},
-		blocked: crate::client::is_blocked_error(msg),
-		obscura: cfg!(feature = "obscura"),
+		blocked: crate::backends::is_blocked_error(msg),
 		prefs: Preferences::new(&req),
 		url,
 	}
@@ -1576,6 +1574,10 @@ pub fn enable_scrape_fallback() -> bool {
 	get_setting("REDLIB_ENABLE_SCRAPE_FALLBACK").is_none_or(|val| val != "off")
 }
 
+pub fn enable_gql() -> bool {
+	get_setting("REDLIB_ENABLE_GQL").is_none_or(|val| val != "off")
+}
+
 /// Extra "more comments" requests a scraped post page makes up front.
 pub fn scrape_comment_prefetch() -> usize {
 	get_setting("REDLIB_SCRAPE_COMMENT_PREFETCH").and_then(|val| val.parse().ok()).unwrap_or(0)
@@ -1597,6 +1599,11 @@ pub fn disable_indexing() -> bool {
 /// Defaults to the upstream Github repository URL when not explicitly configured.
 pub fn get_source_url() -> String {
 	get_setting("REDLIB_SOURCE_URL").unwrap_or("https://github.com/Nachtalb/redlib".into())
+}
+
+pub fn short_git_hash() -> &'static str {
+	let hash = env!("GIT_HASH").trim();
+	hash.get(..7).unwrap_or(hash)
 }
 
 /// Determines if a request should redirect to a NSFW landing gate.
@@ -2040,6 +2047,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_subreddit_quarantined() {
 		let subreddit = Post::fetch("/r/drugs", true).await;
 		assert!(subreddit.is_ok());
@@ -2047,6 +2055,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_nsfw_subreddit() {
 		// Gonwild is a place for closed, Euclidean Geometric shapes to exchange their nth terms for karma; showing off their edges in a comfortable environment without pressure.
 		// Find a good sub that is tagged NSFW but that actually isn't in case my future employers are watching (they probably are)
@@ -2057,6 +2066,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_ws() {
 		let subreddit = Post::fetch("/r/popular", false).await;
 		assert!(subreddit.is_ok());

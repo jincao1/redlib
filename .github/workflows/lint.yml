@@ -3,8 +3,33 @@ name: Lint
 on:
   push:
     branches: [main]
+    paths: &paths
+      - "src/**"
+      - "templates/**"
+      - "static/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tests/**"
+      - "scripts/**"
+      - "Dockerfile.distroless"
+      - "rustfmt.toml"
+      - ".editorconfig"
+      - ".prettierrc.json"
+      - ".pre-commit-config.yaml"
+      - ".github/**"
+      - "**.yml"
+      - "**.yaml"
+      - "**.json"
+      - "**.toml"
+      - "**.md"
   pull_request:
+    paths: *paths
   workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pre-commit:

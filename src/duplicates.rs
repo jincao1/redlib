@@ -1,6 +1,6 @@
 //! Handler for post duplicates.
 
-use crate::client::json;
+use crate::backends::json;
 use crate::server::RequestExt;
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{error, filter_posts, get_filters, nsfw_landing, parse_post, template, Post, Preferences};

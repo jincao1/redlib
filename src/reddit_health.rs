@@ -47,6 +47,24 @@ fn summarize(recent: &VecDeque<(Instant, Outcome)>) -> (bool, String) {
 	(healthy, summary)
 }
 
+/// shields.io endpoint badge for the same window.
+pub fn badge() -> String {
+	let (message, color) = badge_of(&RECENT.lock().unwrap_or_else(|e| e.into_inner()));
+	format!(r#"{{"schemaVersion":1,"label":"reddit","message":"{message}","color":"{color}","cacheSeconds":300}}"#)
+}
+
+fn badge_of(recent: &VecDeque<(Instant, Outcome)>) -> (&'static str, &'static str) {
+	if recent.is_empty() {
+		("no data", "lightgrey")
+	} else if !summarize(recent).0 {
+		("blocked", "red")
+	} else if recent.iter().any(|(_, o)| *o == Outcome::Scraped) {
+		("scraped", "yellow")
+	} else {
+		("ok", "green")
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -64,6 +82,15 @@ mod tests {
 		let (healthy, text) = summarize(&of(&[Blocked, Scraped, Ok, Ok]));
 		assert!(healthy);
 		assert!(text.starts_with("ok: last 4 post requests: 2 ok, 1 scraped, 1 blocked;"), "{text}");
+	}
+
+	#[test]
+	fn badge_follows_status() {
+		use Outcome::*;
+		assert_eq!(badge_of(&of(&[])).0, "no data");
+		assert_eq!(badge_of(&of(&[Ok, Blocked])).0, "ok");
+		assert_eq!(badge_of(&of(&[Ok, Scraped])).0, "scraped");
+		assert_eq!(badge_of(&of(&[Ok, Scraped, Scraped])).0, "blocked");
 	}
 
 	#[test]

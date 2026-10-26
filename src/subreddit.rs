@@ -3,9 +3,9 @@
 use crate::body::Body;
 use crate::utils::{
 	build_rss_items, catch_random, clean_url, enable_rss, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls,
-	rss_page_link, rss_page_path, rss_response, setting, should_be_nsfw_gated, template, val, Post, Preferences, Subreddit, RSS_LISTING_SORTS,
+	rss_page_link, rss_page_path, rss_response, setting, setting_or_default, should_be_nsfw_gated, template, val, Post, Preferences, Subreddit, RSS_LISTING_SORTS,
 };
-use crate::{client::json, server::RequestExt, server::ResponseExt};
+use crate::{backends::json, server::RequestExt, server::ResponseExt};
 use askama::Template;
 use cookie::Cookie;
 use hyper::{Request, Response};
@@ -61,7 +61,7 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	let subscribed = setting(&req, "subscriptions");
 	let front_page = setting(&req, "front_page");
 	let remove_default_feeds = setting(&req, "remove_default_feeds") == "on";
-	let post_sort = setting(&req, "post_sort");
+	let post_sort = setting_or_default(&req, "post_sort", "hot".to_string());
 	let sort = req.param("sort").unwrap_or_else(|| req.param("id").unwrap_or(post_sort));
 
 	let sub_name = req.param("sub").unwrap_or(if front_page == "default" || front_page.is_empty() {
@@ -656,12 +656,14 @@ mod tests {
 	use super::*;
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_fetching_subreddit() {
 		let subreddit = subreddit("rust", false).await;
 		assert!(subreddit.is_ok());
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "live: needs reddit.com"]
 	async fn test_gated_and_quarantined() {
 		let quarantined = subreddit("edgy", true).await;
 		assert!(quarantined.is_ok());
