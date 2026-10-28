@@ -183,7 +183,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **`%2fcomments` path encoding** of thread requests ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592), [#591](https://github.com/redlib-org/redlib/issues/591)): Reddit decodes the path before blocking it, so it only marked requests as coming from Redlib.
-- **`/info.txt`** is gone; `/info` and `/info.json` remain.
+- **`/info.txt` and `/info.yaml`** are gone; `/info` and `/info.json` remain.
 - **Upstream's release binary and pull-request workflows** are disabled (`*.disabled`). The container build publishes the binaries, and Lint and Tests run on pull requests.
 
 ## Development

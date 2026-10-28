@@ -140,8 +140,8 @@ pub struct Config {
 	/// A logged-in Reddit web session, sent as the `Cookie` header on requests
 	/// Reddit refuses to serve to logged-out clients.
 	///
-	/// This is a credential, so it must never be serialized: `/info.json` and
-	/// `/info.yaml` serialize the whole config.
+	/// This is a credential, so it must never be serialized: `/info.json`
+	/// serializes the whole config.
 	#[serde(rename = "REDLIB_REDDIT_COOKIE")]
 	#[serde(skip_serializing)]
 	pub(crate) reddit_cookie: Option<String>,
@@ -572,10 +572,9 @@ mod tests {
 		let config = Config::load();
 		assert_eq!(config.reddit_cookie.as_deref(), Some("reddit_session=secret-cookie-value"));
 
-		// `/info.json` and `/info.yaml` serialize the whole config, so the
-		// session must not show up there.
+		// `/info.json` serializes the whole config, so the session must not
+		// show up there.
 		assert!(!serde_json::to_string(&config).unwrap().contains("secret-cookie-value"));
-		assert!(!serde_yaml::to_string(&config).unwrap().contains("secret-cookie-value"));
 	}
 
 	#[test]

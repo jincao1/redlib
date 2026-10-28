@@ -44,7 +44,6 @@ rust-embed = { version = "8.13.0", features = ["include-exclude"] }
 libflate = "2.3.2"
 brotli = { version = "9.1.0", features = ["std"] }
 toml = "1.1.8"
-serde_yaml = "0.9.34"
 build_html = "2.8.0"
 uuid = { version = "1.29.0", features = ["v4"] }
 base64 = "0.23.1"
