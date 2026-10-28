@@ -169,10 +169,12 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 mod tests {
 	use super::*;
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_fetching_user() {
-		let user = user("spez").await;
-		assert!(user.is_ok());
-		assert!(user.unwrap().karma > 100);
+	#[test]
+	fn test_fetching_user() {
+		crate::client::block_on_shared(async {
+			let user = user("spez").await;
+			assert!(user.is_ok());
+			assert!(user.unwrap().karma > 100);
+		});
 	}
 }

@@ -41,6 +41,16 @@ const REDDIT_COOKIE_MAX_LEN: usize = 8192;
 
 pub static CLIENT: LazyLock<ArcSwap<WreqClient>> = LazyLock::new(|| ArcSwap::from_pointee(build_client()));
 
+/// Runs `future` on one runtime shared by every test. `CLIENT` keeps its
+/// connections in a pool, and each connection lives on the runtime that opened
+/// it, so with a runtime per test, a test that finishes takes down
+/// connections other tests are still using.
+#[cfg(test)]
+pub(crate) fn block_on_shared<F: std::future::Future>(future: F) -> F::Output {
+	static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+	RUNTIME.block_on(future)
+}
+
 pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| {
 	let client = block_on(Oauth::new());
 	tokio::spawn(token_daemon());
@@ -610,9 +620,11 @@ mod tests {
 		assert!(reroll_client());
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_rate_limit_check() {
-		rate_limit_check().await.unwrap();
+	#[test]
+	fn test_rate_limit_check() {
+		crate::client::block_on_shared(async {
+			rate_limit_check().await.unwrap();
+		});
 	}
 
 	#[test]
@@ -627,12 +639,14 @@ mod tests {
 		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_obfuscated_share_link() {
-		let share_link = "/r/rust/s/kPgq8WNHRK".into();
-		// Correct link without share parameters
-		let canonical_link = "/r/rust/comments/18t5968/why_use_tuple_struct_over_standard_struct/kfbqlbc/".into();
-		assert_eq!(canonical_path(share_link, 3).await, Ok(Some(canonical_link)));
+	#[test]
+	fn test_obfuscated_share_link() {
+		crate::client::block_on_shared(async {
+			let share_link = "/r/rust/s/kPgq8WNHRK".into();
+			// Correct link without share parameters
+			let canonical_link = "/r/rust/comments/18t5968/why_use_tuple_struct_over_standard_struct/kfbqlbc/".into();
+			assert_eq!(canonical_path(share_link, 3).await, Ok(Some(canonical_link)));
+		});
 	}
 
 	#[test]

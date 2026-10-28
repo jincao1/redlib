@@ -2044,30 +2044,36 @@ mod tests {
 		assert_eq!(rewrite_urls(input), output);
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_fetching_subreddit_quarantined() {
-		let subreddit = Post::fetch("/r/drugs", true).await;
-		assert!(subreddit.is_ok());
-		assert!(!subreddit.unwrap().0.is_empty());
+	#[test]
+	fn test_fetching_subreddit_quarantined() {
+		crate::client::block_on_shared(async {
+			let subreddit = Post::fetch("/r/drugs", true).await;
+			assert!(subreddit.is_ok());
+			assert!(!subreddit.unwrap().0.is_empty());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_fetching_nsfw_subreddit() {
-		// Gonwild is a place for closed, Euclidean Geometric shapes to exchange their nth terms for karma; showing off their edges in a comfortable environment without pressure.
-		// Find a good sub that is tagged NSFW but that actually isn't in case my future employers are watching (they probably are)
-		// switched from randnsfw as it is no longer functional.
-		let subreddit = Post::fetch("/r/gonwild", false).await;
-		assert!(subreddit.is_ok());
-		assert!(!subreddit.unwrap().0.is_empty());
+	#[test]
+	fn test_fetching_nsfw_subreddit() {
+		crate::client::block_on_shared(async {
+			// Gonwild is a place for closed, Euclidean Geometric shapes to exchange their nth terms for karma; showing off their edges in a comfortable environment without pressure.
+			// Find a good sub that is tagged NSFW but that actually isn't in case my future employers are watching (they probably are)
+			// switched from randnsfw as it is no longer functional.
+			let subreddit = Post::fetch("/r/gonwild", false).await;
+			assert!(subreddit.is_ok());
+			assert!(!subreddit.unwrap().0.is_empty());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_fetching_ws() {
-		let subreddit = Post::fetch("/r/popular", false).await;
-		assert!(subreddit.is_ok());
-		for post in subreddit.unwrap().0 {
-			assert!(post.ws_url.starts_with("wss://k8s-lb.wss.redditmedia.com/link/"));
-		}
+	#[test]
+	fn test_fetching_ws() {
+		crate::client::block_on_shared(async {
+			let subreddit = Post::fetch("/r/popular", false).await;
+			assert!(subreddit.is_ok());
+			for post in subreddit.unwrap().0 {
+				assert!(post.ws_url.starts_with("wss://k8s-lb.wss.redditmedia.com/link/"));
+			}
+		});
 	}
 
 	#[test]

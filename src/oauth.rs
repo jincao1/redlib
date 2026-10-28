@@ -473,52 +473,64 @@ fn choose<T: Copy>(list: &[T]) -> T {
 mod tests {
 	use super::*;
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_mobile_spoof_backend() {
-		// Test MobileSpoofAuth backend specifically
-		let mut backend = MobileSpoofAuth::new();
-		let response = backend.authenticate().await;
-		assert!(response.is_ok());
-		let response = response.unwrap();
-		assert!(!response.token.is_empty());
-		assert!(response.expires_in > 0);
-		assert!(!backend.user_agent().is_empty());
-		assert!(!backend.get_headers().is_empty());
+	#[test]
+	fn test_mobile_spoof_backend() {
+		crate::client::block_on_shared(async {
+			// Test MobileSpoofAuth backend specifically
+			let mut backend = MobileSpoofAuth::new();
+			let response = backend.authenticate().await;
+			assert!(response.is_ok());
+			let response = response.unwrap();
+			assert!(!response.token.is_empty());
+			assert!(response.expires_in > 0);
+			assert!(!backend.user_agent().is_empty());
+			assert!(!backend.get_headers().is_empty());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_generic_web_backend() {
-		// Test GenericWebAuth backend specifically
-		let mut backend = GenericWebAuth::new();
-		let response = backend.authenticate().await;
-		assert!(response.is_ok());
-		let response = response.unwrap();
-		assert!(!response.token.is_empty());
-		assert!(response.expires_in > 0);
-		assert!(!backend.user_agent().is_empty());
+	#[test]
+	fn test_generic_web_backend() {
+		crate::client::block_on_shared(async {
+			// Test GenericWebAuth backend specifically
+			let mut backend = GenericWebAuth::new();
+			let response = backend.authenticate().await;
+			assert!(response.is_ok());
+			let response = response.unwrap();
+			assert!(!response.token.is_empty());
+			assert!(response.expires_in > 0);
+			assert!(!backend.user_agent().is_empty());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_oauth_client() {
-		// Integration test - tests the overall Oauth client
-		assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
+	#[test]
+	fn test_oauth_client() {
+		crate::client::block_on_shared(async {
+			// Integration test - tests the overall Oauth client
+			assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_oauth_client_refresh() {
-		force_refresh_token().await;
+	#[test]
+	fn test_oauth_client_refresh() {
+		crate::client::block_on_shared(async {
+			force_refresh_token().await;
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_oauth_token_exists() {
-		let client = OAUTH_CLIENT.load_full();
-		let auth_header = client.headers_map.get("Authorization").unwrap();
-		assert!(auth_header.starts_with("Bearer "));
+	#[test]
+	fn test_oauth_token_exists() {
+		crate::client::block_on_shared(async {
+			let client = OAUTH_CLIENT.load_full();
+			let auth_header = client.headers_map.get("Authorization").unwrap();
+			assert!(auth_header.starts_with("Bearer "));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	async fn test_oauth_headers_len() {
-		assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
+	#[test]
+	fn test_oauth_headers_len() {
+		crate::client::block_on_shared(async {
+			assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
+		});
 	}
 
 	#[test]
