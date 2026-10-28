@@ -473,6 +473,7 @@ mod tests {
 	}
 
 	#[test]
+	#[ignore = "www.reddit.com answers GitHub's runners with 403; run with --include-ignored"]
 	fn test_generic_web_backend() {
 		crate::client::block_on_shared(async {
 			// Test GenericWebAuth backend specifically, retrying like Oauth::new
