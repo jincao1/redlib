@@ -33,6 +33,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Tests that need reddit.com are #[ignore]d; run them with `cargo test -- --include-ignored`.
       - name: Test
         run: cargo test --locked

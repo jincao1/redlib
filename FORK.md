@@ -26,6 +26,7 @@ Without Docker, download a binary from the [`latest` release](https://github.com
 Bugs present in upstream Redlib that are fixed here:
 
 - **Rate-limit counter wrapped around**: requests near the end of the quota could push it below zero to 65535, which skipped the token refresh ([redlib-org#586](https://github.com/redlib-org/redlib/pull/586)).
+- **The fallback token login was dead**: after 5 failed Android app logins, Redlib asked `/api/v1/access_token` for a token with a web client ID, which Reddit answers with `401 Unauthorized`. It now gets the anonymous `token_v2` the website gets, by answering the JS challenge on `www.reddit.com`.
 - **`/commits.atom` and `/instances.json` crashed the request** when GitHub was unreachable. They now serve the last good copy, or a 502 ([redlib-org#396](https://github.com/redlib-org/redlib/pull/396), ported).
 - **Error pages called fork builds outdated**: the update check compared the instance's commit with upstream's commit list, so every fork build was "at least 20 commits old". It now checks the repository in `REDLIB_SOURCE_URL`.
 - **Error pages were cluttered**: the whole message filled the heading above six spaced-out lines, and "Report an issue" opened upstream. They now show the error, one line of detail, the requested Reddit URL and one link row (Reddit status, report an issue on this fork, try another instance). An outdated instance gets a red bar above the footer instead of a status line.
@@ -190,7 +191,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - Formatting is enforced with pre-commit and a Lint workflow: `cargo fmt`, [djhtml](https://github.com/rtts/djhtml) for templates, Prettier for CSS and JS, plus whitespace and line-ending checks. Run `pre-commit install` once.
 - `.editorconfig`: tabs for Rust, 4 spaces for templates, CSS and JS, 2 spaces for YAML and JSON.
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
-- A Tests workflow runs `cargo test` on every pull request and push to `main`. Tests that need reddit.com are `#[ignore]`d there; run them locally with `cargo test -- --include-ignored`.
+- A Tests workflow runs `cargo test` on every pull request and push to `main`, including the tests that need reddit.com. Those share one runtime (`client::block_on_shared`), because `CLIENT`'s pooled connections die with the runtime that opened them. Only `test_generic_web_backend` is `#[ignore]`d, because `www.reddit.com` answers GitHub's runners with 403; run it with `cargo test -- --include-ignored`.
 - A new push cancels the Lint, Tests and Container build runs still going for the same branch.
 - CI only runs when files it checks change: a commit that touches only Markdown runs Lint but no Tests or Container build.
 - Dependabot opens weekly update PRs for crates, GitHub Actions and pre-commit hooks, grouped into one PR each.

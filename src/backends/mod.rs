@@ -545,32 +545,36 @@ mod tests {
 		);
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_localization_popular() {
-		let val = json("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL".to_string(), false).await.unwrap();
-		assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
+	#[test]
+	fn test_localization_popular() {
+		crate::client::block_on_shared(async {
+			let val = json("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL".to_string(), false).await.unwrap();
+			assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_private_sub() {
-		let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
-		assert_eq!(link, Err("private".into()));
+	#[test]
+	fn test_private_sub() {
+		crate::client::block_on_shared(async {
+			let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
+			assert_eq!(link, Err("private".into()));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_banned_sub() {
-		let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
-		assert_eq!(link, Err("banned".into()));
+	#[test]
+	fn test_banned_sub() {
+		crate::client::block_on_shared(async {
+			let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
+			assert_eq!(link, Err("banned".into()));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_gated_sub() {
-		// quarantine to false to specifically catch when we _don't_ catch it
-		let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
-		assert_eq!(link, Err("gated".into()));
+	#[test]
+	fn test_gated_sub() {
+		crate::client::block_on_shared(async {
+			// quarantine to false to specifically catch when we _don't_ catch it
+			let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
+			assert_eq!(link, Err("gated".into()));
+		});
 	}
 }

@@ -302,98 +302,82 @@ impl OauthBackend for MobileSpoofAuth {
 	}
 }
 
-// GenericWebAuth backend - simple web-based authentication
+// GenericWebAuth backend - the anonymous token Reddit's website gets. The
+// website has no token request: www.reddit.com answers a fresh visitor with a
+// JS challenge page, and the answer to it sets the token as the `token_v2`
+// cookie.
 #[derive(Debug, Clone)]
 pub struct GenericWebAuth {
-	device_id: String,
 	user_agent: String,
 	additional_headers: HashMap<String, String>,
 }
 
 impl GenericWebAuth {
 	fn new() -> Self {
-		// Generate random 20-character alphanumeric device_id
-		let device_id: String = (0..20)
-			.map(|_| {
-				let idx = fastrand::usize(..62);
-				let chars = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-				chars[idx] as char
-			})
-			.collect();
-
-		info!("[🔄] Using GenericWebAuth with device_id: \"{device_id}\"");
+		info!("[🔄] Using GenericWebAuth");
 
 		Self {
-			device_id,
 			user_agent: fake_user_agent::get_rua().to_owned(),
 			additional_headers: HashMap::new(),
 		}
 	}
 }
 
+/// The `solution` and `jsc_token` of Reddit's JS challenge page. Its script
+/// only doubles a string: `(async e=>e+e)("<challenge>")`.
+fn challenge_answer(page: &str) -> Option<(String, String)> {
+	let challenge = page.split("e=>e+e)(\"").nth(1)?.split('"').next()?;
+	let token = page.split("name=\"jsc_token\" value=\"").nth(1)?.split('"').next()?;
+	Some((format!("{challenge}{challenge}"), token.to_string()))
+}
+
+/// The `name=value` of every cookie a response sets.
+fn set_cookies(resp: &wreq::Response) -> Vec<String> {
+	resp
+		.headers()
+		.get_all("set-cookie")
+		.iter()
+		.filter_map(|value| value.to_str().ok()?.split(';').next().map(str::to_string))
+		.collect()
+}
+
+/// Seconds a `token_v2` JWT is valid for (`exp - iat`).
+fn token_lifetime(token: &str) -> Option<u64> {
+	use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+	let claims: serde_json::Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?).ok()?;
+	Some((claims["exp"].as_f64()? - claims["iat"].as_f64()?) as u64)
+}
+
 impl OauthBackend for GenericWebAuth {
 	async fn authenticate(&mut self) -> Result<OauthResponse, AuthError> {
-		// Construct URL for OAuth token
-		let url = "https://www.reddit.com/api/v1/access_token";
-		let mut builder = CLIENT.load_full().post(url);
+		let client = CLIENT.load_full();
+		let field = |what: &'static str| AuthError::Field((serde_json::Value::Null, what));
 
-		// Add minimal headers
-		builder = builder.header("Host", "www.reddit.com");
-		builder = builder.header("User-Agent", &self.user_agent);
-		builder = builder.header("Accept", "*/*");
-		builder = builder.header("Accept-Language", "en-US,en;q=0.5");
-		// builder = builder.header("Accept-Encoding", "gzip, deflate, br, zstd");
-		builder = builder.header("Authorization", "Basic M1hmQkpXbGlIdnFBQ25YcmZJWWxMdzo=");
-		builder = builder.header("Content-Type", "application/x-www-form-urlencoded");
-		builder = builder.header("Sec-GPC", "1");
-		builder = builder.header("Connection", "keep-alive");
+		// Reddit sometimes answers with a reCAPTCHA page instead, for a few
+		// seconds at a time. Oauth::new tries again after OAUTH_TIMEOUT.
+		trace!("Loading the GenericWebAuth challenge page...");
+		let resp = client.get("https://www.reddit.com/").header("Accept", "text/html").send().await?;
+		let cookies = set_cookies(&resp);
+		let status = resp.status();
+		let page = resp.text().await?;
+		// Without the challenge, name what came instead (e.g. "Reddit - Prove your humanity")
+		let title = || format!("{status} {}", page.split("<title>").nth(1).and_then(|t| t.split('<').next()).unwrap_or_default().trim());
+		let (solution, jsc_token) = challenge_answer(&page).ok_or_else(|| AuthError::Field((title().into(), "JS challenge on www.reddit.com")))?;
 
-		// Set up form body
-		let body_str = format!("grant_type=https%3A%2F%2Foauth.reddit.com%2Fgrants%2Finstalled_client&device_id={}", self.device_id);
-
-		trace!("Sending GenericWebAuth token request to {url}...");
-
-		// Send request
-		let resp: wreq::Response = builder.body(body_str).send().await?;
-
-		trace!("Received response with status {} and length {:?}", resp.status(), resp.headers().get("content-length"));
-		trace!("GenericWebAuth headers: {:#?}", resp.headers());
-
-		// Parse headers - loid header _should_ be saved sent on subsequent token refreshes.
-		// Technically it's not needed, but it's easy for Reddit API to check for this.
-		// It's some kind of header that uniquely identifies the device.
-		// Not worried about the privacy implications, since this is randomly changed
-		// and really only as privacy-concerning as the OAuth token itself.
-		if let Some(header) = resp.headers().get("x-reddit-loid") {
-			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-loid".to_owned(), header_val.to_str().unwrap().to_string());
-		}
-
-		// Same with x-reddit-session
-		if let Some(header) = resp.headers().get("x-reddit-session") {
-			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-session".to_owned(), header_val.to_str().unwrap().to_string());
-		}
-
-		trace!("Serializing GenericWebAuth response...");
-
-		// Serialize response
-		let json: serde_json::Value = resp.json().await?;
-
-		trace!("Accessing relevant fields...");
-
-		// Parse response - access_token, token_type, device_id, expires_in, scope
-		let token = json
-			.get("access_token")
-			.ok_or_else(|| AuthError::Field((json.clone(), "access_token")))?
-			.as_str()
-			.ok_or_else(|| AuthError::Field((json.clone(), "access_token: as_str")))?
-			.to_string();
-		let expires_in = json
-			.get("expires_in")
-			.ok_or_else(|| AuthError::Field((json.clone(), "expires_in")))?
-			.as_u64()
-			.ok_or_else(|| AuthError::Field((json.clone(), "expires_in: as_u64")))?;
+		trace!("Answering the GenericWebAuth challenge...");
+		let url = format!("https://www.reddit.com/?solution={solution}&js_challenge=1&jsc_token={jsc_token}&jsc_orig_r=");
+		let resp = client
+			.get(url)
+			.header("Accept", "text/html")
+			.header("Referer", "https://www.reddit.com/")
+			.header("Cookie", cookies.join("; "))
+			.send()
+			.await?;
+		let token = set_cookies(&resp)
+			.into_iter()
+			.find_map(|cookie| cookie.strip_prefix("token_v2=").map(str::to_string))
+			.ok_or_else(|| field("token_v2 cookie"))?;
+		let expires_in = token_lifetime(&token).ok_or_else(|| field("token_v2 expiry"))?;
 
 		info!(
 			"[✅] GenericWebAuth success - Retrieved token \"{}...\", expires in {}",
@@ -473,58 +457,91 @@ fn choose<T: Copy>(list: &[T]) -> T {
 mod tests {
 	use super::*;
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_mobile_spoof_backend() {
-		// Test MobileSpoofAuth backend specifically
-		let mut backend = MobileSpoofAuth::new();
-		let response = backend.authenticate().await;
-		assert!(response.is_ok());
-		let response = response.unwrap();
-		assert!(!response.token.is_empty());
-		assert!(response.expires_in > 0);
-		assert!(!backend.user_agent().is_empty());
-		assert!(!backend.get_headers().is_empty());
+	#[test]
+	fn test_mobile_spoof_backend() {
+		crate::client::block_on_shared(async {
+			// Test MobileSpoofAuth backend specifically
+			let mut backend = MobileSpoofAuth::new();
+			let response = backend.authenticate().await;
+			assert!(response.is_ok(), "{response:?}");
+			let response = response.unwrap();
+			assert!(!response.token.is_empty());
+			assert!(response.expires_in > 0);
+			assert!(!backend.user_agent().is_empty());
+			assert!(!backend.get_headers().is_empty());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_generic_web_backend() {
-		// Test GenericWebAuth backend specifically
-		let mut backend = GenericWebAuth::new();
-		let response = backend.authenticate().await;
-		assert!(response.is_ok());
-		let response = response.unwrap();
-		assert!(!response.token.is_empty());
-		assert!(response.expires_in > 0);
-		assert!(!backend.user_agent().is_empty());
+	#[test]
+	#[ignore = "www.reddit.com answers GitHub's runners with 403; run with --include-ignored"]
+	fn test_generic_web_backend() {
+		crate::client::block_on_shared(async {
+			// Test GenericWebAuth backend specifically, retrying like Oauth::new
+			let mut backend = GenericWebAuth::new();
+			let mut response = backend.authenticate().await;
+			for _ in 1..5 {
+				if response.is_ok() {
+					break;
+				}
+				tokio::time::sleep(OAUTH_TIMEOUT).await;
+				response = backend.authenticate().await;
+			}
+			assert!(response.is_ok(), "{response:?}");
+			let response = response.unwrap();
+			assert!(!response.token.is_empty());
+			assert!(response.expires_in > 0);
+			assert!(!backend.user_agent().is_empty());
+
+			// The token works on the API like the app's
+			let about = CLIENT
+				.load_full()
+				.get("https://oauth.reddit.com/r/rust/about.json?raw_json=1")
+				.header("Authorization", format!("Bearer {}", response.token))
+				.header("User-Agent", backend.user_agent())
+				.send()
+				.await
+				.unwrap();
+			assert_eq!(about.status(), 200);
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_oauth_client() {
-		// Integration test - tests the overall Oauth client
-		assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
+	#[test]
+	fn test_challenge_answer() {
+		let page =
+			r#"<script>e.elements.namedItem("solution").value=n,await (async e=>e+e)("dca4e9c023c34e03");</script><input type="hidden" name="jsc_token" value="2824be10"/>"#;
+		assert_eq!(challenge_answer(page), Some(("dca4e9c023c34e03dca4e9c023c34e03".to_string(), "2824be10".to_string())));
+		assert_eq!(challenge_answer("<html></html>"), None);
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_oauth_client_refresh() {
-		force_refresh_token().await;
+	#[test]
+	fn test_oauth_client() {
+		crate::client::block_on_shared(async {
+			// Integration test - tests the overall Oauth client
+			assert!(OAUTH_CLIENT.load_full().headers_map.contains_key("Authorization"));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_oauth_token_exists() {
-		let client = OAUTH_CLIENT.load_full();
-		let auth_header = client.headers_map.get("Authorization").unwrap();
-		assert!(auth_header.starts_with("Bearer "));
+	#[test]
+	fn test_oauth_client_refresh() {
+		crate::client::block_on_shared(async {
+			force_refresh_token().await;
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_oauth_headers_len() {
-		assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
+	#[test]
+	fn test_oauth_token_exists() {
+		crate::client::block_on_shared(async {
+			let client = OAUTH_CLIENT.load_full();
+			let auth_header = client.headers_map.get("Authorization").unwrap();
+			assert!(auth_header.starts_with("Bearer "));
+		});
+	}
+
+	#[test]
+	fn test_oauth_headers_len() {
+		crate::client::block_on_shared(async {
+			assert!(OAUTH_CLIENT.load_full().headers_map.len() >= 3);
+		});
 	}
 
 	#[test]
