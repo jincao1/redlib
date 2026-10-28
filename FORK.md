@@ -190,7 +190,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - Formatting is enforced with pre-commit and a Lint workflow: `cargo fmt`, [djhtml](https://github.com/rtts/djhtml) for templates, Prettier for CSS and JS, plus whitespace and line-ending checks. Run `pre-commit install` once.
 - `.editorconfig`: tabs for Rust, 4 spaces for templates, CSS and JS, 2 spaces for YAML and JSON.
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
-- A Tests workflow runs `cargo test` on every pull request and push to `main`. Tests that need reddit.com are `#[ignore]`d there; run them locally with `cargo test -- --include-ignored`.
+- A Tests workflow runs `cargo test` on every pull request and push to `main`, including the tests that need reddit.com. Those share one runtime (`client::block_on_shared`), because `CLIENT`'s pooled connections die with the runtime that opened them.
 - A new push cancels the Lint, Tests and Container build runs still going for the same branch.
 - CI only runs when files it checks change: a commit that touches only Markdown runs Lint but no Tests or Container build.
 - Dependabot opens weekly update PRs for crates, GitHub Actions and pre-commit hooks, grouped into one PR each.
