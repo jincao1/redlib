@@ -33,7 +33,6 @@ pub async fn instance_info(req: Request<Body>) -> Result<Response<Body>, String>
 	// simply become the last option, an HTML page.
 	let extension = req.param("extension").unwrap_or_default();
 	let response = match extension.as_str() {
-		"yaml" | "yml" => info_yaml(),
 		"json" => info_json(),
 		"html" | "" => info_html(&req),
 		_ => {
@@ -61,20 +60,6 @@ fn info_json() -> Result<Response<Body>, Error> {
 			.status(500)
 			.header("content-type", "text/plain")
 			.body(Body::from("Error serializing JSON"))
-	}
-}
-
-fn info_yaml() -> Result<Response<Body>, Error> {
-	if let Ok(body) = serde_yaml::to_string(&*INSTANCE_INFO) {
-		// We can use `application/yaml` as media type, though there is no guarantee
-		// that browsers will honor it. But we'll do it anyway. See:
-		// https://github.com/ietf-wg-httpapi/mediatypes/blob/main/draft-ietf-httpapi-yaml-mediatypes.md#media-type-applicationyaml-application-yaml
-		Response::builder().status(200).header("content-type", "application/yaml").body(body.into())
-	} else {
-		Response::builder()
-			.status(500)
-			.header("content-type", "text/plain")
-			.body(Body::from("Error serializing YAML."))
 	}
 }
 
