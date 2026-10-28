@@ -620,9 +620,12 @@ mod tests {
 		assert!(reroll_client());
 	}
 
+	// Its own process: the check expects the rate limit counter to start fresh,
+	// but other tests use the same counter.
 	#[test]
+	#[sealed_test]
 	fn test_rate_limit_check() {
-		crate::client::block_on_shared(async {
+		tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 			rate_limit_check().await.unwrap();
 		});
 	}
