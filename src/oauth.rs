@@ -358,7 +358,11 @@ impl OauthBackend for GenericWebAuth {
 		trace!("Loading the GenericWebAuth challenge page...");
 		let resp = client.get("https://www.reddit.com/").header("Accept", "text/html").send().await?;
 		let cookies = set_cookies(&resp);
-		let (solution, jsc_token) = challenge_answer(&resp.text().await?).ok_or_else(|| field("JS challenge on www.reddit.com"))?;
+		let status = resp.status();
+		let page = resp.text().await?;
+		// Without the challenge, name what came instead (e.g. "Reddit - Prove your humanity")
+		let title = || format!("{status} {}", page.split("<title>").nth(1).and_then(|t| t.split('<').next()).unwrap_or_default().trim());
+		let (solution, jsc_token) = challenge_answer(&page).ok_or_else(|| AuthError::Field((title().into(), "JS challenge on www.reddit.com")))?;
 
 		trace!("Answering the GenericWebAuth challenge...");
 		let url = format!("https://www.reddit.com/?solution={solution}&js_challenge=1&jsc_token={jsc_token}&jsc_orig_r=");
