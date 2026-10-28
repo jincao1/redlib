@@ -2320,7 +2320,7 @@ dependencies = [
 [[package]]
 name = "obscura"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "anyhow",
  "obscura-browser",
@@ -2335,7 +2335,7 @@ dependencies = [
 [[package]]
 name = "obscura-browser"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2354,7 +2354,7 @@ dependencies = [
 [[package]]
 name = "obscura-dom"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "cssparser 0.34.0",
  "html5ever 0.39.0",
@@ -2369,7 +2369,7 @@ dependencies = [
 [[package]]
 name = "obscura-js"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2402,7 +2402,7 @@ dependencies = [
 [[package]]
 name = "obscura-net"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "async-trait",
  "encoding_rs",
@@ -2424,7 +2424,7 @@ dependencies = [
 [[package]]
 name = "obscura-ssrf"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 
 [[package]]
 name = "once_cell"
@@ -3848,7 +3848,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
