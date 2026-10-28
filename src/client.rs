@@ -611,14 +611,12 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_rate_limit_check() {
 		rate_limit_check().await.unwrap();
 	}
 
 	#[test]
 	#[sealed_test(env = [("REDLIB_DEFAULT_SUBSCRIPTIONS", "rust")])]
-	#[ignore = "live: needs reddit.com"]
 	fn test_default_subscriptions() {
 		tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 			let subscriptions = get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS");
@@ -630,7 +628,6 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_obfuscated_share_link() {
 		let share_link = "/r/rust/s/kPgq8WNHRK".into();
 		// Correct link without share parameters

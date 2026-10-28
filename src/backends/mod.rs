@@ -546,28 +546,24 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_localization_popular() {
 		let val = json("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL".to_string(), false).await.unwrap();
 		assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_private_sub() {
 		let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
 		assert_eq!(link, Err("private".into()));
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_banned_sub() {
 		let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
 		assert_eq!(link, Err("banned".into()));
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
 	async fn test_gated_sub() {
 		// quarantine to false to specifically catch when we _don't_ catch it
 		let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
