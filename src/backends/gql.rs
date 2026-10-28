@@ -43,6 +43,10 @@ impl Backend for Gql {
 		Box::pin(async move {
 			match json(path, quarantine).await {
 				None => Err(Failure::Unsupported),
+				// Quarantined subreddits stay unavailable here even after opting
+				// in, so let the next backend try.
+				Some(Err(reason)) if quarantine && (reason == "quarantined" || reason == "gated") => Err(Failure::Unsupported),
+				Some(Err(reason)) if UNAVAILABLE_REASONS.contains(&reason.as_str()) => Err(Failure::Final(reason)),
 				Some(result) => result.map_err(Failure::Invalid),
 			}
 		})
@@ -58,7 +62,7 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	let segments: Vec<&str> = route.trim_end_matches(".json").split('/').filter(|s| !s.is_empty()).collect();
 	Some(match segments.as_slice() {
 		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
-		["r", sub, "about"] => about(sub).await,
+		["r", sub, "about"] => about(sub, quarantine).await,
 		["search"] => search(path, None).await,
 		["r", sub, "search"] => search(path, Some(sub)).await,
 		["subreddits", "search"] => search_subreddits(path).await,
@@ -444,10 +448,25 @@ fn post(node: &Value) -> Option<Value> {
 
 const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
 
-async fn about(name: &str) -> Result<Value, String> {
-	let variables = json_value!({ "subredditName": name, "filterGated": false, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false });
+/// Why Reddit won't show a subreddit, as the JSON API's `reason` names it.
+const UNAVAILABLE_REASONS: [&str; 4] = ["private", "banned", "quarantined", "gated"];
+
+async fn about(name: &str, quarantine: bool) -> Result<Value, String> {
+	let variables = json_value!({ "subredditName": name, "filterGated": !quarantine, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false });
 	let response = query("SubredditInfoByName", SUBREDDIT_INFO_HASH, &variables).await?;
-	subreddit(&response["data"]["subredditInfoByName"]).ok_or_else(|| format!("r/{name} not found"))
+	about_json(&response["data"]["subredditInfoByName"], name)
+}
+
+/// The `about.json` of a `SubredditInfoByName` node, or why Reddit won't show
+/// the subreddit (`private`, `banned`, `quarantined` or `gated`).
+fn about_json(node: &Value, name: &str) -> Result<Value, String> {
+	if node["__typename"] == "UnavailableSubreddit" {
+		return Err(match node["forbiddenReason"].as_str() {
+			Some(reason) => reason.to_lowercase(),
+			None => format!("r/{name} is unavailable"),
+		});
+	}
+	subreddit(node).ok_or_else(|| format!("r/{name} not found"))
 }
 
 /// Converts a GraphQL subreddit into a subreddit of the JSON API (`about.json`).
@@ -1025,5 +1044,16 @@ mod tests {
 			html.contains(r#"<h3>Please read <a href="https://www.rust-lang.org/policies/code-of-conduct"><strong>The Rust Community Code of Conduct</strong></a></h3><hr>"#),
 			"{html}"
 		);
+	}
+
+	#[test]
+	fn test_unavailable_subreddits() {
+		for (reason, expected) in [("PRIVATE", "private"), ("BANNED", "banned"), ("QUARANTINED", "quarantined"), ("GATED", "gated")] {
+			let node = json_value!({ "__typename": "UnavailableSubreddit", "forbiddenReason": reason, "name": "x" });
+			assert_eq!(about_json(&node, "x"), Err(expected.to_string()));
+		}
+		let node = json_value!({ "__typename": "UnavailableSubreddit", "name": "x" });
+		assert_eq!(about_json(&node, "x"), Err("r/x is unavailable".to_string()));
+		assert!(about_json(&fixture("subreddit_info.json")["data"]["subredditInfoByName"], "rust").is_ok());
 	}
 }
