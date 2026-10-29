@@ -598,6 +598,8 @@ mod tests {
 	#[test]
 	#[sealed_test]
 	fn test_session_cookie_is_optional() {
+		// CI sets one for the live tests
+		std::env::remove_var("REDLIB_REDDIT_COOKIE");
 		assert!(session_cookies().is_empty());
 	}
 

@@ -580,6 +580,8 @@ mod tests {
 	#[test]
 	#[sealed_test]
 	fn test_reddit_cookie_from_config_file() {
+		// CI sets one for the live tests, and the environment wins over the file
+		std::env::remove_var("REDLIB_REDDIT_COOKIE");
 		let config_to_write = r#"REDLIB_REDDIT_COOKIE = "reddit_session=from-file""#;
 		write("redlib.toml", config_to_write).unwrap();
 		assert_eq!(get_setting("REDLIB_REDDIT_COOKIE"), Some("reddit_session=from-file".into()));

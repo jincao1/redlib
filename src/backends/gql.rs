@@ -343,6 +343,8 @@ async fn all(path: &str, sort: &str) -> Result<Value, String> {
 		.as_array()
 		.into_iter()
 		.flatten()
+		// Ads are posts too, marked by their `adPayload`
+		.filter(|edge| edge["node"]["adPayload"].is_null())
 		.filter_map(|edge| edge["node"]["groupId"].as_str())
 		.filter(|id| id.starts_with("t3_"))
 		.collect();
@@ -376,8 +378,9 @@ fn post(node: &Value) -> Option<Value> {
 		"author_flair_text": node["authorFlair"]["text"],
 		"author_flair_background_color": node["authorFlair"]["template"]["backgroundColor"],
 		"author_flair_text_color": node["authorFlair"]["textColor"].as_str().map(str::to_lowercase),
-		"subreddit": node["subreddit"]["name"],
-		"subreddit_name_prefixed": node["subreddit"]["prefixedName"],
+		// Posts on a user's profile (`ProfilePost`) have a profile instead of a subreddit
+		"subreddit": node["subreddit"]["name"].as_str().or(node["profile"]["name"].as_str()),
+		"subreddit_name_prefixed": node["subreddit"]["prefixedName"].as_str().or(node["profile"]["redditorInfo"]["prefixedName"].as_str()),
 		"permalink": node["permalink"],
 		"url": node["url"],
 		"domain": node["domain"],
@@ -1009,6 +1012,16 @@ mod tests {
 		assert_eq!(subs.iter().map(|s| crate::utils::val(s, "display_name")).collect::<Vec<_>>(), ["rust", "playrust"]);
 		assert_eq!(crate::utils::val(&subs[0], "url"), "/r/rust/");
 		assert!(subs[0]["data"]["subscribers"].as_f64().is_some());
+	}
+
+	#[test]
+	fn test_profile_posts_name_the_profile() {
+		let node = json_value!({
+			"__typename": "ProfilePost", "id": "t3_1vgbkge", "postTitle": "Hi", "subreddit": null,
+			"profile": { "name": "u_spez", "redditorInfo": { "prefixedName": "u/spez" } },
+		});
+		let post = post(&node).unwrap();
+		assert_eq!((&post["data"]["subreddit"], &post["data"]["subreddit_name_prefixed"]), (&"u_spez".into(), &"u/spez".into()));
 	}
 
 	#[test]
