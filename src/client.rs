@@ -108,6 +108,10 @@ const REROLL_COOLDOWN_SECS: u64 = 60;
 fn emulation_pairs() -> impl Iterator<Item = (Profile, Platform)> {
 	EMULATIONS
 		.iter()
+		// Reddit answers anonymous oauth.reddit.com JSON with 403 for current
+		// Chrome, Edge and Firefox fingerprints, so the live tests stay on the
+		// ones it serves instead of depending on the draw
+		.filter(|(profile, _)| !cfg!(test) || ["Safari", "Opera"].iter().any(|b| format!("{profile:?}").starts_with(b)))
 		.flat_map(|(profile, platforms)| platforms.iter().map(move |platform| (*profile, *platform)))
 }
 
