@@ -926,6 +926,15 @@ main > * > footer > a {
     margin: 10px 0 0 0;
     white-space: nowrap;
     scrollbar-width: none;
+    /* Scroll shadows without JS: the `local` covers move with the tabs and
+       hide the `scroll` shadows once an edge is reached */
+    --scroll-shadow: color-mix(in srgb, var(--text) 40%, transparent);
+    background:
+        linear-gradient(to right, var(--outside) 40%, transparent) left / 50px 100% no-repeat local,
+        linear-gradient(to left, var(--outside) 40%, transparent) right / 50px 100% no-repeat local,
+        linear-gradient(to right, var(--scroll-shadow), transparent) left / 20px 100% no-repeat scroll,
+        linear-gradient(to left, var(--scroll-shadow), transparent) right / 20px 100% no-repeat scroll,
+        var(--outside);
 }
 
 #listing_options.search_tabs::-webkit-scrollbar {
