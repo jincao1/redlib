@@ -1,9 +1,9 @@
 use crate::body::Body;
 use crate::config::get_setting;
 use crate::dbg_msg;
-use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
+use crate::oauth::{token_daemon, Oauth};
 use crate::server::RequestExt;
-use crate::utils::{format_url, Post};
+use crate::utils::format_url;
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
 use futures_lite::future::block_on;
@@ -615,41 +615,6 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 	.boxed()
 }
 
-async fn self_check(sub: &str) -> Result<(), String> {
-	let query = format!("/r/{sub}/hot.json?&raw_json=1");
-
-	match Post::fetch(&query, true).await {
-		Ok(_) => Ok(()),
-		Err(e) => Err(e),
-	}
-}
-
-pub async fn rate_limit_check() -> Result<(), String> {
-	// First, test the Oauth client: we can perform a rate limit check if the OAuth backend is MobileSpoof; if GenericWeb, we skip the check.
-	if matches!(OAUTH_CLIENT.load().backend, OauthBackendImpl::GenericWeb(_)) {
-		warn!("[⚠️] Cannot perform rate limit check, running as GenericWeb. Skipping check.");
-		return Ok(());
-	}
-
-	// First, check a subreddit.
-	self_check("reddit").await?;
-	// This will reduce the rate limit to 99. Assert this check.
-	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 99 {
-		return Err(format!("Rate limit check 1 failed: expected 99, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
-	}
-	// Now, we switch out the OAuth client.
-	// This checks for the IP rate limit association.
-	force_refresh_token().await;
-	// Now, check a new sub to break cache.
-	self_check("rust").await?;
-	// Again, assert the rate limit check.
-	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 99 {
-		return Err(format!("Rate limit check 2 failed: expected 99, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
-	}
-
-	Ok(())
-}
-
 pub(crate) trait IntoHyperResponse {
 	fn into_hyper_response(self) -> HyperResponse<Body>;
 }
@@ -948,25 +913,12 @@ mod tests {
 		assert!(broken.is_empty(), "the tests use fingerprints Reddit blocks: {}", broken.join(", "));
 	}
 
-	// Its own process: the check expects the rate limit counter to start fresh,
-	// but other tests use the same counter.
-	#[test]
-	#[sealed_test]
-	fn test_rate_limit_check() {
-		tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
-			rate_limit_check().await.unwrap();
-		});
-	}
-
 	#[test]
 	#[sealed_test(env = [("REDLIB_DEFAULT_SUBSCRIPTIONS", "rust")])]
 	fn test_default_subscriptions() {
 		tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 			let subscriptions = get_setting("REDLIB_DEFAULT_SUBSCRIPTIONS");
 			assert!(subscriptions.is_some());
-
-			// check rate limit
-			rate_limit_check().await.unwrap();
 		});
 	}
 

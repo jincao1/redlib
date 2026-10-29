@@ -7,10 +7,11 @@
 
 use super::{json as reddit_json, Backend, Failure, Fetch, Kind};
 use crate::client::{CLIENT, OAUTH_CLIENT};
+use crate::oauth::force_refresh_token;
 use crate::utils::{enable_gql, format_url, param};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
-use log::debug;
+use log::{debug, warn};
 use serde_json::{json as json_value, Value};
 
 pub(crate) const GQL_URL: &str = "https://gql-fed.reddit.com/";
@@ -142,6 +143,9 @@ fn comment_tree(response: &Value, post_id: &str) -> Result<Vec<Value>, String> {
 	Ok(nest(trees.iter().filter_map(|tree| item(tree, post_id)).collect()))
 }
 
+/// Of 600 per token; JSON refreshes at 10 of 100.
+const GQL_LOW_RATE_LIMIT: f32 = 60.0;
+
 /// Runs a persisted query. Fields that time out upstream come back null with an
 /// error next to the data; one retry usually fills them in.
 async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, String> {
@@ -167,6 +171,11 @@ async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, 
 		}
 		let res = builder.json(&body).send().await.map_err(|e| e.to_string())?;
 		let status = res.status();
+		let remaining = res.headers().get("x-ratelimit-remaining").and_then(|v| v.to_str().ok()?.parse::<f32>().ok());
+		if remaining.is_some_and(|left| left < GQL_LOW_RATE_LIMIT) {
+			warn!("gql rate limit {remaining:?} is low, refreshing the token");
+			tokio::spawn(force_refresh_token());
+		}
 		response = res.json().await.map_err(|e| format!("{operation} returned {status}: {e}"))?;
 
 		if response["data"].is_null() {
