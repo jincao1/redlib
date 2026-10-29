@@ -788,7 +788,7 @@ button.submit:hover > svg {
     border-radius: 0;
 }
 
-#sort_options + #timeframe:not(#search_sort > #timeframe) {
+#sort_options + #timeframe:not(#search_sort #timeframe) {
     border-radius: 5px 0px 0px 5px;
 }
 
@@ -849,6 +849,11 @@ button.submit:hover > svg {
 .search_widget_divider_box > #sort_options {
     border-radius: 0;
     box-shadow: none;
+}
+
+/* Only the search field rounds its corners, so every focus outline matches */
+#search_sort select {
+    border-radius: 0;
 }
 
 /* When screen size is smaller than 480px we switch to a design better suited for mobile devices */
