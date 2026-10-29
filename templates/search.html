@@ -24,7 +24,7 @@
                         <select name="post_types" title="Post type">
                             {% for value in params.tab.post_types %}
                                 <option value="{{ value }}" {% if params.post_types == value.to_string() || (params.post_types == "" && value.to_string() == "all") %}selected{% endif %}>
-                                    {% if value.to_string() == "gif" %}GIF{% else %}{{ format!("{}{}", value.get(0..1).unwrap_or_default().to_uppercase(), value.get(1..).unwrap_or_default()) }}{% endif %}
+                                    {% if value.to_string() == "gif" %}GIF{% else if value.to_string() == "all" %}All types{% else %}{{ format!("{}{}", value.get(0..1).unwrap_or_default().to_uppercase(), value.get(1..).unwrap_or_default()) }}{% endif %}
                                 </option>
                             {% endfor %}
                         </select>
