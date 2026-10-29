@@ -788,6 +788,15 @@ button.submit:hover > svg {
     border-radius: 0;
 }
 
+button,
+input[type="submit"],
+input[type="checkbox"],
+input[type="radio"],
+summary,
+#inside label {
+    cursor: pointer;
+}
+
 #search_sort select,
 #sort_submit,
 #inside {
