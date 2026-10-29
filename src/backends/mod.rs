@@ -11,6 +11,8 @@
 mod cookied_json;
 pub mod gql;
 mod json;
+#[cfg(test)]
+mod live_tests;
 #[cfg(feature = "obscura")]
 pub mod obscura;
 mod score;
