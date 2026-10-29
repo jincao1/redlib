@@ -11,6 +11,18 @@ use tokio::time::{error::Elapsed, timeout};
 
 const REDDIT_ANDROID_OAUTH_CLIENT_ID: &str = "ohXpoqrZYub1kg";
 
+/// `MANUFACTURER;MODEL`, as the app sends it in `Device-Name`
+const ANDROID_DEVICE_LIST: &[&str] = &[
+	"samsung;SM-S921B",
+	"samsung;SM-S928B",
+	"samsung;SM-A556B",
+	"Google;Pixel 8",
+	"Google;Pixel 9 Pro",
+	"Google;Pixel 7a",
+	"OnePlus;CPH2581",
+	"Xiaomi;23127PN0CG",
+];
+
 const AUTH_ENDPOINT: &str = "https://www.reddit.com";
 
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -235,7 +247,7 @@ impl OauthBackend for MobileSpoofAuth {
 
 		// Set JSON body. I couldn't tell you what this means. But that's what the client sends
 		let json = json!({
-				"scopes": ["*","email", "pii"]
+				"scopes": ["*", "email", "pii", "adsread", "adsedit"]
 		});
 
 		trace!("Sending token request to {url}...");
@@ -418,20 +430,24 @@ impl Device {
 
 		let qos = fastrand::u32(1000..=100_000);
 		let qos: f32 = qos as f32 / 1000.0;
-		let qos = format!("{qos:.3}");
+		let qos = format!("down-rate-mbps={qos:.3}");
 
 		let codecs = TextGenerator::new().generate("available-codecs=video/avc, video/hevc{, video/x-vnd.on2.vp9|}");
 
 		// Android device headers
 		let headers: HashMap<String, String> = HashMap::from([
 			("User-Agent".into(), android_user_agent.clone()),
-			("x-reddit-retry".into(), "algo=no-retries".into()),
+			("x-reddit-retry".into(), "attempt=0, max=3".into()),
 			("x-reddit-compression".into(), "1".into()),
 			("x-reddit-qos".into(), qos),
 			("x-reddit-media-codecs".into(), codecs),
 			("Content-Type".into(), "application/json; charset=UTF-8".into()),
 			("client-vendor-id".into(), uuid.clone()),
 			("X-Reddit-Device-Id".into(), uuid.clone()),
+			("X-Dev-Ad-Id".into(), uuid::Uuid::new_v4().to_string()),
+			("Device-Name".into(), choose(ANDROID_DEVICE_LIST).to_string()),
+			("Accept-Language".into(), "en-US".into()),
+			("X-Reddit-Http-QoS".into(), "GOOD".into()),
 		]);
 
 		info!("[🔄] Spoofing Android client with headers: {headers:?}, uuid: \"{uuid}\", and OAuth ID \"{REDDIT_ANDROID_OAUTH_CLIENT_ID}\"");
