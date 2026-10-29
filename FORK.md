@@ -42,6 +42,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Inconsistent margins** inside posts and comments, and headings without margins; empty zero-width-space paragraphs no longer add gaps ([redlib-org#413](https://github.com/redlib-org/redlib/pull/413)).
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
+- **"Enable HLS to view with audio" showed on every video**, also when the MP4 played without HLS has sound or the video has none. It now only shows when HLS is the only way to hear it.
 - **Settings codes broke on every new setting**: codes exported before a new field was added failed to restore. See [Settings codes](#settings-codes).
 - **Comment search had no submit button.**
 - **Large numbers** show as `10K` instead of `10.0K`.
