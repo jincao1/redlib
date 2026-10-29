@@ -104,10 +104,63 @@ fn test_gql_subreddit_info() {
 
 #[test]
 fn test_gql_search() {
-	assert_posts(&get(&Gql, "/search.json?q=rust&raw_json=1"), "gql search");
-	assert_posts(&get(&Gql, "/r/rust/search.json?q=async&restrict_sr=on&raw_json=1"), "gql search in subreddit");
-	let subreddits = get(&Gql, "/subreddits/search.json?q=rust&limit=3");
-	assert!(children(&subreddits, "gql subreddit search").iter().all(|s| s["kind"] == "t5"), "{subreddits}");
+	let page = get(&Gql, "/search.json?q=rust&raw_json=1");
+	assert_posts(&page, "gql search");
+	// The next page has other posts
+	let after = page["data"]["after"].as_str().expect("gql search: no next page");
+	let after = percent_encoding::utf8_percent_encode(after, percent_encoding::NON_ALPHANUMERIC);
+	let next = get(&Gql, &format!("/search.json?q=rust&after={after}&raw_json=1"));
+	assert_posts(&next, "gql search page 2");
+	let first = &children(&page, "gql search")[0]["data"]["id"];
+	assert!(children(&next, "gql search page 2").iter().all(|p| &p["data"]["id"] != first), "{next}");
+
+	assert_posts(&get(&Gql, "/search.json?q=rust&sort=top&t=week&post_types=text&raw_json=1"), "gql search top text posts");
+	let in_sub = get(&Gql, "/r/rust/search.json?q=async&restrict_sr=on&raw_json=1");
+	assert_posts(&in_sub, "gql search in subreddit");
+	assert!(children(&in_sub, "gql search in subreddit").iter().all(|p| p["data"]["subreddit"] == "rust"), "{in_sub}");
+}
+
+#[test]
+fn test_gql_search_media() {
+	let media = get(&Gql, "/search.json?q=aurora&type=media&raw_json=1");
+	assert_posts(&media, "gql media search");
+	for post in children(&media, "gql media search") {
+		let data = &post["data"];
+		assert!(
+			data["preview"].is_object() || data["is_gallery"] == true || data["secure_media"].is_object(),
+			"gql media search: no media: {data}"
+		);
+	}
+	assert_posts(&get(&Gql, "/search.json?q=aurora&type=media&post_types=gif&raw_json=1"), "gql media search for GIFs");
+}
+
+#[test]
+fn test_gql_search_comments() {
+	let comments = get(&Gql, "/search.json?q=rust&type=comment&sort=new&raw_json=1");
+	for comment in children(&comments, "gql comment search") {
+		assert_eq!(comment["kind"], "t1", "{comment}");
+		let data = &comment["data"];
+		for field in ["id", "author", "body_html", "link_title", "permalink", "subreddit"] {
+			assert!(data[field].as_str().is_some_and(|v| !v.is_empty()), "gql comment search: comment without {field}: {data}");
+		}
+	}
+}
+
+#[test]
+fn test_gql_search_communities() {
+	let subreddits = get(&Gql, "/subreddits/search.json?q=rust");
+	for subreddit in children(&subreddits, "gql subreddit search") {
+		assert_eq!(subreddit["kind"], "t5", "{subreddit}");
+		assert!(subreddit["data"]["url"].as_str().is_some_and(|url| url.starts_with("/r/")), "{subreddit}");
+	}
+}
+
+#[test]
+fn test_gql_search_people() {
+	let users = get(&Gql, "/users/search.json?q=spez");
+	let users = children(&users, "gql people search");
+	assert!(users.iter().all(|u| u["kind"] == "t2" && u["data"]["name"].is_string()), "{users:?}");
+	assert!(users.iter().any(|u| u["data"]["total_karma"].as_i64().is_some_and(|k| k > 0)), "{users:?}");
 }
 
 #[test]
