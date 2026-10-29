@@ -140,6 +140,11 @@ input {
     word-wrap: anywhere;
 }
 
+html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--highlighted) var(--background);
+}
+
 html.fixed_navbar {
     scroll-padding-top: 50px;
 }
