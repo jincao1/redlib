@@ -566,6 +566,11 @@ summary:not(.comment_data):hover {
     text-decoration: underline;
 }
 
+#instance_info details[open] > summary,
+#feeds[open] > summary {
+    margin-bottom: 10px;
+}
+
 #user_details > label,
 #sub_details > label {
     color: var(--accent);
