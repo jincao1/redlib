@@ -798,6 +798,7 @@ summary,
 }
 
 #search_sort select,
+#sort select,
 #sort_submit,
 #inside {
     transition: 0.2s background;
@@ -805,12 +806,15 @@ summary,
 
 #search_sort select:hover,
 #search_sort select:focus-visible,
+#sort select:hover,
+#sort select:focus-visible,
 #sort_submit:hover,
 #sort_submit:focus-visible,
 #inside:hover,
 #inside:focus-within {
     background: var(--foreground);
     text-decoration: underline;
+    outline: none;
 }
 
 #search_sort:focus-within,
