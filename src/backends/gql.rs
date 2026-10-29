@@ -63,9 +63,10 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	Some(match segments.as_slice() {
 		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
 		["r", sub, "about"] => about(sub, quarantine).await,
-		["search"] => search(path, None).await,
-		["r", sub, "search"] => search(path, Some(sub)).await,
-		["subreddits", "search"] => search_subreddits(path).await,
+		["search"] => search(path, None, search_pane(path)).await,
+		["r", sub, "search"] => search(path, Some(sub), search_pane(path)).await,
+		["subreddits", "search"] => search(path, None, "communities").await,
+		["users", "search"] => search(path, None, "people").await,
 		["user", name, "about"] => user_about(name).await,
 		["user", name, "submitted"] => user_posts(path, name, param(path, "after").as_deref()).await,
 		["user", name, "comments"] => user_comments(path, name, param(path, "after").as_deref()).await,
@@ -413,7 +414,8 @@ fn post(node: &Value) -> Option<Value> {
 		"thumbnail": thumbnail["url"].as_str().unwrap_or_default(),
 		"thumbnail_width": thumbnail["dimensions"]["width"],
 		"thumbnail_height": thumbnail["dimensions"]["height"],
-		"post_hint": node["postHint"].as_str().map(|hint| hint.to_lowercase().replace('_', ":")),
+		// Search results only name the type of their media
+		"post_hint": node["postHint"].as_str().or(node["media"]["typeHint"].as_str().filter(|hint| *hint == "IMAGE")).map(|hint| hint.to_lowercase().replace('_', ":")),
 		"all_awardings": awards(node),
 	});
 	if node["isSelfPost"] != true {
@@ -486,7 +488,7 @@ fn subreddit(node: &Value) -> Option<Value> {
 		"name": node["id"],
 		"display_name": name,
 		"display_name_prefixed": node["prefixedName"],
-		"url": node["path"],
+		"url": node["path"].as_str().map_or_else(|| format!("/r/{name}/"), str::to_string),
 		"title": node["title"],
 		"public_description": node["publicDescriptionText"],
 		"description": description["markdown"],
@@ -500,50 +502,138 @@ fn subreddit(node: &Value) -> Option<Value> {
 	} }))
 }
 
-const SEARCH_POSTS_HASH: &str = "8610e33521c90caa8d12576800c18b708ce0d19df3dfac8e2aad55d9860e4bf9";
-const SEARCH_COMMUNITIES_HASH: &str = "a3333069c1ead3ceec6d9bf4da4185ff584f69d0ba8b586e545b32ea62170932";
+const DYNAMIC_SEARCH_HASH: &str = "4acac653e5aac2ae2f08114d07ba7582e852464a57e324547c259ea3ef2ebd40";
 
-/// Variables of a search query for the search `path`; its cursors are the base64 of the JSON API's `after`.
-fn search_variables(path: &str, query: String) -> Value {
-	let mut variables = json_value!({
-		"query": query,
-		"filters": [],
-		"productSurface": "",
-		"pageSize": param(path, "limit").and_then(|l| l.parse::<u32>().ok()).unwrap_or(25),
-	});
-	if let Some(after) = param(path, "after").filter(|a| !a.is_empty()) {
-		variables["afterCursor"] = STANDARD.encode(after).into();
+/// The tab of the app's search a post search `path` asks for: its `type` is
+/// `comment`, `media` or a post search.
+fn search_pane(path: &str) -> &'static str {
+	match param(path, "type").as_deref() {
+		Some("comment") => "comments",
+		Some("media") => "media",
+		_ => "posts",
 	}
-	variables
 }
 
-async fn search(path: &str, sub: Option<&str>) -> Result<Value, String> {
-	let mut query = param(path, "q").unwrap_or_default();
+/// Variables of the app's search (`DynamicSearch`) for the search `path`.
+/// Sort, time and post types go in `filters` like the app's filter chips put
+/// them; the page cursor is the JSON API's `after`.
+fn search_variables(path: &str, text: String, pane: &str) -> Value {
+	let nsfw = param(path, "include_over_18").is_some();
+	let mut filters = vec![("safe_search", if nsfw { "off" } else { "on" }.to_string())];
+	let sort = param(path, "sort").filter(|s| !s.is_empty());
+	if let Some(sort) = &sort {
+		filters.push(("sort", sort.to_uppercase()));
+	}
+	// The app clears the time range for these sorts
+	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && !matches!(sort.as_deref(), Some("hot" | "new"))) {
+		filters.push(("time_range", range));
+	}
+	if let Some(types) = param(path, "post_types").filter(|t| !t.is_empty() && t != "all") {
+		filters.push(("post_types", types));
+	}
+	let options = [
+		("page_type", "search_results".to_string()),
+		("pane", pane.to_string()),
+		("pref_allow_nsfw", if nsfw { "1" } else { "0" }.to_string()),
+		("is_eligible_for_kwf", "0".to_string()),
+		("after", param(path, "after").unwrap_or_default()),
+		("treatment", "default".to_string()),
+	];
+	let inputs = |pairs: &[(&str, String)]| pairs.iter().map(|(key, value)| json_value!({ "key": key, "value": value })).collect::<Vec<_>>();
+	// One ID per query text, so its pages share one like the app's do
+	let mut hasher = std::hash::DefaultHasher::new();
+	std::hash::Hash::hash(&text, &mut hasher);
+	let hash = std::hash::Hasher::finish(&hasher);
+	let query_id = uuid::Builder::from_random_bytes((u128::from(hash) << 64 | u128::from(hash.rotate_left(32))).to_le_bytes()).into_uuid();
+	json_value!({
+		"query": text,
+		"queryId": query_id.to_string(),
+		"filters": inputs(&filters),
+		"options": inputs(&options),
+		"includeSubredditUnit": true,
+	})
+}
+
+/// One tab (`pane`) of the app's search as a JSON API listing: posts, comments,
+/// subreddits or users.
+async fn search(path: &str, sub: Option<&str>, pane: &str) -> Result<Value, String> {
+	let mut text = param(path, "q").unwrap_or_default();
 	if let Some(sub) = sub.filter(|_| param(path, "restrict_sr").is_some_and(|r| !r.is_empty())) {
-		query = format!("{query} subreddit:{sub}");
+		text = format!("{text} subreddit:{sub}");
 	}
-	let sort = param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "relevance".to_string());
-	let mut variables = search_variables(path, query);
-	variables["sort"] = sort.to_uppercase().into();
-	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && t != "all" && sort != "new") {
-		variables["filters"] = json_value!([{ "key": "time_range", "value": range }]);
-	}
-	let mut listing = feed("SearchPosts", SEARCH_POSTS_HASH, variables, "/search/general/posts").await?;
-	if param(path, "include_over_18").is_none() {
-		if let Some(posts) = listing["data"]["children"].as_array_mut() {
-			posts.retain(|post| post["data"]["over_18"] != true);
+	// The media tab always searches all media types; a single type is a post search
+	let pane = if pane == "media" && param(path, "post_types").is_some_and(|t| !t.is_empty() && t != "all") {
+		"posts"
+	} else {
+		pane
+	};
+	let variables = search_variables(path, text, pane);
+	let response = query("DynamicSearch", DYNAMIC_SEARCH_HASH, &variables).await?;
+	let mut listing = search_listing(&response).ok_or_else(|| format!("DynamicSearch returned no results: {}", response["errors"]))?;
+	if let Some(children) = listing["data"]["children"].as_array_mut() {
+		if param(path, "include_over_18").is_none() {
+			children.retain(|child| child["data"]["over_18"] != true);
+		}
+		if let Some(limit) = param(path, "limit").and_then(|l| l.parse().ok()) {
+			children.truncate(limit);
 		}
 	}
 	Ok(listing)
 }
 
-async fn search_subreddits(path: &str) -> Result<Value, String> {
-	let variables = search_variables(path, param(path, "q").unwrap_or_default());
-	let response = query("SearchCommunities", SEARCH_COMMUNITIES_HASH, &variables).await?;
-	let communities = response["data"]["search"]["general"]["communities"]["edges"]
+/// The results of a `DynamicSearch` response as a JSON API listing.
+fn search_listing(response: &Value) -> Option<Value> {
+	let main = response["data"]["search"]["dynamic"]["components"]["main"].as_object()?;
+	let children: Vec<Value> = main["edges"]
 		.as_array()
-		.ok_or("SearchCommunities returned no subreddits")?;
-	Ok(listing(communities.iter().filter_map(|edge| subreddit(&edge["node"])).collect()))
+		.into_iter()
+		.flatten()
+		.flat_map(|edge| edge["node"]["children"].as_array().into_iter().flatten())
+		.filter_map(search_result)
+		.collect();
+	let page = &main["pageInfo"];
+	let after = if page["hasNextPage"] == true { page["endCursor"].clone() } else { Value::Null };
+	Some(json_value!({ "kind": "Listing", "data": { "after": after, "children": children } }))
+}
+
+/// Converts one search result into an item of the JSON API. Ads
+/// (`SearchAdPost`) and anything else that isn't a result give `None`.
+fn search_result(result: &Value) -> Option<Value> {
+	match result["__typename"].as_str()? {
+		"SearchPost" | "SearchMediaPost" => post(&result["post"]),
+		"SearchComment" => search_comment(&result["comment"]),
+		"SearchCommunity" => subreddit(&result["community"]),
+		"SearchAuthor" => search_user(&result["author"]),
+		_ => None,
+	}
+}
+
+/// A comment search result as a comment of the JSON API, with the post it is
+/// on like on user pages.
+fn search_comment(comment: &Value) -> Option<Value> {
+	let post = &comment["postInfo"];
+	let (_, mut item) = item(&json_value!({ "depth": 0, "parentId": post["id"], "node": comment }), "")?;
+	let subreddit = post["subreddit"]["name"].as_str().unwrap_or_default();
+	let post_id = post["id"].as_str()?.trim_start_matches("t3_");
+	let id = item["data"]["id"].as_str()?.to_string();
+	item["data"]["link_title"] = post["title"].clone();
+	item["data"]["link_id"] = post["id"].clone();
+	item["data"]["permalink"] = format!("/r/{subreddit}/comments/{post_id}/comment/{id}/").into();
+	item["data"]["subreddit"] = subreddit.into();
+	item["data"]["over_18"] = (post["isNsfw"] == true).into();
+	Some(item)
+}
+
+/// A people search result as a user of the JSON API (`/users/search`).
+fn search_user(author: &Value) -> Option<Value> {
+	let profile = &author["profileInfo"];
+	Some(json_value!({ "kind": "t2", "data": {
+		"name": author["name"].as_str()?,
+		"created_utc": timestamp(&profile["createdAt"]),
+		"total_karma": author["karma"]["total"],
+		"icon_img": author["icon"]["url"],
+		"subreddit": { "over_18": profile["isNsfw"] == true },
+	} }))
 }
 
 const PROFILE_HASH: &str = "096ccf5d943485822cb6d3e0dc13f9977da1984514e1d539e1ed38a51158e689";
@@ -1007,16 +1097,98 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_search_fixtures() {
-		let posts = post_listing(&fixture("search_posts.json")["data"]["search"]["general"]["posts"]);
-		assert_eq!(posts["data"]["after"], "24");
-		let first = crate::utils::parse_post(&posts["data"]["children"][0]).await;
-		assert_eq!(first.title, "Rust features in the future");
+		let listing = |name: &str| search_listing(&fixture(name)).unwrap();
+		let children = |listing: &Value| listing["data"]["children"].as_array().unwrap().clone();
 
-		let communities = &fixture("search_communities.json")["data"]["search"]["general"]["communities"]["edges"];
-		let subs: Vec<Value> = communities.as_array().unwrap().iter().filter_map(|edge| subreddit(&edge["node"])).collect();
-		assert_eq!(subs.iter().map(|s| crate::utils::val(s, "display_name")).collect::<Vec<_>>(), ["rust", "playrust"]);
-		assert_eq!(crate::utils::val(&subs[0], "url"), "/r/rust/");
-		assert!(subs[0]["data"]["subscribers"].as_f64().is_some());
+		let posts = listing("dynamic_search_posts.json");
+		assert!(posts["data"]["after"].as_str().is_some_and(|after| after.len() > 100));
+		let posts = children(&posts);
+		assert_eq!(posts.len(), 3);
+		let video = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(
+			(video.title.as_str(), video.community.as_str(), video.post_type.as_str()),
+			("Aurora Borealis seen really close", "oddlysatisfying", "video")
+		);
+		assert_eq!(video.author.name, "Original_Act_3481");
+		assert_eq!(crate::utils::parse_post(&posts[1]).await.post_type, "self");
+		assert_eq!(crate::utils::parse_post(&posts[2]).await.post_type, "image");
+
+		let media = children(&listing("dynamic_search_media.json"));
+		let mut types = Vec::new();
+		for post in &media {
+			types.push(crate::utils::parse_post(post).await.post_type);
+		}
+		assert_eq!(types, ["video", "image", "gallery"]);
+
+		let comments = children(&listing("dynamic_search_comments.json"));
+		assert_eq!(comments.len(), 2);
+		let val = |key| crate::utils::val(&comments[0], key);
+		assert_eq!(comments[0]["kind"], "t1");
+		assert_eq!((val("author"), val("subreddit")), ("Venomspino".to_string(), "Minecraft".to_string()));
+		assert_eq!(val("link_title"), "New Aurora Cape!");
+		assert_eq!(val("permalink"), "/r/Minecraft/comments/1wsk2m5/comment/pcm2c6z/");
+		assert!(val("body_html").contains("Aurora Borealis!?"));
+
+		let communities = children(&listing("dynamic_search_communities.json"));
+		let names: Vec<String> = communities.iter().map(|s| crate::utils::val(s, "display_name")).collect();
+		assert_eq!(names, ["AuroraBorealis", "northernlights", "BreastfeedingAurora"]);
+		assert_eq!(crate::utils::val(&communities[0], "url"), "/r/AuroraBorealis/");
+		assert!(communities[0]["data"]["subscribers"].as_u64().is_some_and(|s| s > 20000));
+
+		let people = children(&listing("dynamic_search_people.json"));
+		let names: Vec<String> = people.iter().map(|u| crate::utils::val(u, "name")).collect();
+		assert_eq!(names, ["auroraborealis", "Auroraborealissa"]);
+		assert_eq!(people[0]["data"]["total_karma"], 1);
+		assert!(people[0]["data"]["created_utc"].as_f64().is_some_and(|c| c > 1.2e9));
+	}
+
+	#[test]
+	fn test_search_leaves_out_ads() {
+		let mut response = fixture("dynamic_search_posts.json");
+		let ad = json_value!({ "__typename": "SearchAdPost", "id": "ad", "post": { "__typename": "AdPost", "id": "t3_ad", "postTitle": "Buy this" } });
+		response["data"]["search"]["dynamic"]["components"]["main"]["edges"][0]["node"]["children"]
+			.as_array_mut()
+			.unwrap()
+			.insert(1, ad);
+		let listing = search_listing(&response).unwrap();
+		assert_eq!(listing["data"]["children"].as_array().unwrap().len(), 3);
+	}
+
+	#[test]
+	fn test_search_variables() {
+		let entries = |list: &Value| {
+			list
+				.as_array()
+				.unwrap()
+				.iter()
+				.map(|e| format!("{}={}", e["key"].as_str().unwrap(), e["value"].as_str().unwrap()))
+				.collect::<Vec<_>>()
+		};
+		let path = "/search.json?q=rust&sort=top&t=week&post_types=image&after=abc&include_over_18=on";
+		let variables = search_variables(path, "rust".into(), "posts");
+		assert_eq!(entries(&variables["filters"]), ["safe_search=off", "sort=TOP", "time_range=week", "post_types=image"]);
+		assert_eq!(
+			entries(&variables["options"]),
+			[
+				"page_type=search_results",
+				"pane=posts",
+				"pref_allow_nsfw=1",
+				"is_eligible_for_kwf=0",
+				"after=abc",
+				"treatment=default"
+			]
+		);
+
+		let variables_new = search_variables("/search.json?q=rust&sort=new&t=week", "rust".into(), "comments");
+		assert_eq!(entries(&variables_new["filters"]), ["safe_search=on", "sort=NEW"]);
+		assert!(entries(&variables_new["options"]).contains(&"after=".to_string()));
+		// The pages of one query share its ID
+		assert_eq!(variables["queryId"], variables_new["queryId"]);
+		assert_ne!(variables["queryId"], search_variables("", "rust async".into(), "posts")["queryId"]);
+
+		assert_eq!(search_pane("/search.json?q=rust&type=comment"), "comments");
+		assert_eq!(search_pane("/r/rust/search.json?q=rust&type=media"), "media");
+		assert_eq!(search_pane("/search.json?q=rust"), "posts");
 	}
 
 	#[test]

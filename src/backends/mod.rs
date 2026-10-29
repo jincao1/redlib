@@ -87,7 +87,7 @@ pub enum Kind {
 	Subreddit,
 	/// A user's profile, overview, posts and comments.
 	User,
-	/// Post and subreddit search.
+	/// Post, comment, subreddit and user search.
 	Search,
 	Wiki,
 	Duplicates,
@@ -141,7 +141,7 @@ impl Kind {
 			["duplicates", ..] => Self::Duplicates,
 			["comments", _, ..] | [_, _, "comments", _, ..] => Self::Comments,
 			["user" | "u", ..] => Self::User,
-			["search", ..] | ["subreddits", "search", ..] | ["r", _, "search", ..] => Self::Search,
+			["search", ..] | ["subreddits" | "users", "search", ..] | ["r", _, "search", ..] => Self::Search,
 			["r", _, "wiki", ..] | ["wiki", ..] => Self::Wiki,
 			["r", _, "about", ..] => Self::Subreddit,
 			_ => Self::Listing,
@@ -495,6 +495,7 @@ mod tests {
 			("/search.json?q=rust", Kind::Search),
 			("/r/rust/search.json?q=async&restrict_sr=on", Kind::Search),
 			("/subreddits/search.json?q=rust&limit=3", Kind::Search),
+			("/users/search.json?q=rust", Kind::Search),
 			("/r/rust/wiki/index.json?raw_json=1", Kind::Wiki),
 			("/duplicates/abc.json", Kind::Duplicates),
 		] {
