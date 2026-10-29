@@ -185,6 +185,7 @@ pub struct Media {
 	pub height: i64,
 	pub poster: String,
 	pub download_name: String,
+	pub needs_hls_for_audio: bool,
 }
 
 impl Media {
@@ -198,31 +199,31 @@ impl Media {
 
 		// Check RedGifs FIRST before Reddit's cached fallback videos, then other video sources
 		let domain = data["domain"].as_str().unwrap_or_default();
-		let (post_type, url_val, alt_url_val) = if enable_redgifs() && redgifs::is_redgifs_domain(domain) {
+		let (post_type, url_val, video) = if enable_redgifs() && redgifs::is_redgifs_domain(domain) {
 			("video", &data["url"], None)
 		} else if data_preview["fallback_url"].is_string() {
 			(
 				if data_preview["is_gif"].as_bool().unwrap_or(false) { "gif" } else { "video" },
 				&data_preview["fallback_url"],
-				Some(&data_preview["hls_url"]),
+				Some(data_preview),
 			)
 		} else if secure_media["fallback_url"].is_string() {
 			(
 				if secure_media["is_gif"].as_bool().unwrap_or(false) { "gif" } else { "video" },
 				&secure_media["fallback_url"],
-				Some(&secure_media["hls_url"]),
+				Some(secure_media),
 			)
 		} else if crosspost_parent_media["fallback_url"].is_string() {
 			(
 				if crosspost_parent_media["is_gif"].as_bool().unwrap_or(false) { "gif" } else { "video" },
 				&crosspost_parent_media["fallback_url"],
-				Some(&crosspost_parent_media["hls_url"]),
+				Some(crosspost_parent_media),
 			)
 		} else if data["post_hint"].as_str().unwrap_or("") == "rich:video" && data_preview["fallback_url"].is_string() {
 			(
 				if data_preview["is_gif"].as_bool().unwrap_or(false) { "gif" } else { "video" },
 				&data_preview["fallback_url"],
-				Some(&data_preview["hls_url"]),
+				Some(data_preview),
 			)
 		} else if data["post_hint"].as_str().unwrap_or("") == "image" {
 			// Handle images, whether GIFs or pics
@@ -266,7 +267,11 @@ impl Media {
 
 		let source = &data["preview"]["images"][0]["source"];
 
-		let alt_url = alt_url_val.map_or(String::new(), |val| format_url(val.as_str().unwrap_or_default()));
+		let alt_url = video.map_or(String::new(), |video| format_url(video["hls_url"].as_str().unwrap_or_default()));
+		let url = format_url(url_val.as_str().unwrap_or_default());
+		// Only the muxed MP4s from packaged media have sound without HLS
+		let needs_hls_for_audio =
+			post_type == "video" && !alt_url.is_empty() && !url.starts_with("/packaged") && video.is_some_and(|video| video["has_audio"].as_bool() != Some(false));
 
 		let download_name = if post_type == "image" || post_type == "gif" || post_type == "video" {
 			let permalink_base = url_path_basename(data["permalink"].as_str().unwrap_or_default());
@@ -280,7 +285,7 @@ impl Media {
 		(
 			post_type.to_string(),
 			Self {
-				url: format_url(url_val.as_str().unwrap_or_default()),
+				url,
 				alt_url,
 				// Note: in the data["is_reddit_media_domain"] path above
 				// width and height will be 0.
@@ -288,6 +293,7 @@ impl Media {
 				height: source["height"].as_i64().unwrap_or_default(),
 				poster: format_url(source["url"].as_str().unwrap_or_default()),
 				download_name,
+				needs_hls_for_audio,
 			},
 			gallery,
 		)
@@ -436,6 +442,7 @@ impl Post {
 					height: data["thumbnail_height"].as_i64().unwrap_or_default(),
 					poster: String::new(),
 					download_name: String::new(),
+					needs_hls_for_audio: false,
 				},
 				media,
 				domain: val(post, "domain"),
@@ -986,6 +993,7 @@ pub async fn parse_post(post: &Value) -> Post {
 			height: post["data"]["thumbnail_height"].as_i64().unwrap_or_default(),
 			poster: String::new(),
 			download_name: String::new(),
+			needs_hls_for_audio: false,
 		},
 		flair: Flair {
 			flair_parts: FlairPart::parse(
@@ -1931,7 +1939,8 @@ fn get_mime_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
 	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
-	use super::{page_feed_url, prefix_relative_urls};
+	use super::{page_feed_url, prefix_relative_urls, Media};
+	use serde_json::{json, Value};
 
 	#[test]
 	fn format_num_works() {
@@ -2091,6 +2100,23 @@ mod tests {
 			r#"<p><a href="https://preview.redd.it/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc">caption 1</a></p>"#;
 		let output = r#"<figure><a href="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"><img loading="lazy" src="/preview/pre/6awags382xo31.png?width=2560&amp;format=png&amp;auto=webp&amp;s=9c563aed4f07a91bdd249b5a3cea43a79710dcfc"></a><figcaption>caption 1</figcaption></figure>"#;
 		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[tokio::test]
+	async fn test_needs_hls_for_audio() {
+		let video = |has_audio: Value| {
+			json!({
+				"permalink": "/r/test/comments/abc/test/",
+				"secure_media": { "reddit_video": {
+					"fallback_url": "https://v.redd.it/abc/CMAF_720.mp4?source=fallback",
+					"hls_url": "https://v.redd.it/abc/HLSPlaylist.m3u8",
+					"has_audio": has_audio,
+				} },
+			})
+		};
+		assert!(Media::parse(&video(json!(true))).await.1.needs_hls_for_audio);
+		assert!(Media::parse(&video(Value::Null)).await.1.needs_hls_for_audio);
+		assert!(!Media::parse(&video(json!(false))).await.1.needs_hls_for_audio);
 	}
 
 	#[test]

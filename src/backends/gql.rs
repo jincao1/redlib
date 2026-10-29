@@ -1108,6 +1108,7 @@ mod tests {
 		assert_eq!(video.title, "Secret knowledge");
 		assert_eq!(video.media.url, "/vid/apxzua5q5ixh1/CMAF/720.mp4");
 		assert!(video.media.alt_url.starts_with("/hls/apxzua5q5ixh1/HLSPlaylist.m3u8"));
+		assert!(video.media.needs_hls_for_audio);
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
@@ -1136,12 +1137,14 @@ mod tests {
 		assert_eq!(hosted.post_type, "video");
 		assert!(hosted.media.url.starts_with("/packaged/hynwcs24l1se1/muxed-high.mp4?"));
 		assert!(hosted.media.alt_url.starts_with("/hls/hynwcs24l1se1/HLSPlaylist.m3u8"));
+		assert!(!hosted.media.needs_hls_for_audio);
 
 		// Reddit's copy of a Streamable clip is an MP4 behind `hlsUrl`
 		let external = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!(external.post_type, "video");
 		assert!(external.media.url.starts_with("/packaged-external/t3_1xhfggw/3p/streamable/9gsuah/video.mp4?"));
 		assert_eq!(external.media.alt_url, "");
+		assert!(!external.media.needs_hls_for_audio);
 	}
 
 	#[tokio::test]
