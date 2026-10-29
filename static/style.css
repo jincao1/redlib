@@ -811,11 +811,20 @@ summary,
 #inside:focus-within {
     background: var(--foreground);
     text-decoration: underline;
+}
+
+#search_sort:focus-within,
+#sort:has(.commentQuery):focus-within {
+    outline: 2px solid var(--accent);
+}
+
+#search_sort :focus-visible,
+#sort:has(.commentQuery) :focus-visible {
     outline: none;
 }
 
-#restrict_sr:focus-visible {
-    outline: none;
+#sort:has(.commentQuery) {
+    border-radius: 5px;
 }
 
 #search_sort #inside {
