@@ -1015,6 +1015,28 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn test_packaged_media_fixture() {
+		let posts = fixture("packaged_media.json")["data"]["postsInfoByIds"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter_map(post)
+			.collect::<Vec<_>>();
+
+		// The muxed MP4 has sound, unlike v.redd.it's CMAF renditions
+		let hosted = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(hosted.post_type, "video");
+		assert!(hosted.media.url.starts_with("/packaged/hynwcs24l1se1/muxed-high.mp4?"));
+		assert!(hosted.media.alt_url.starts_with("/hls/hynwcs24l1se1/HLSPlaylist.m3u8"));
+
+		// Reddit's copy of a Streamable clip is an MP4 behind `hlsUrl`
+		let external = crate::utils::parse_post(&posts[1]).await;
+		assert_eq!(external.post_type, "video");
+		assert!(external.media.url.starts_with("/packaged-external/t3_1xhfggw/3p/streamable/9gsuah/video.mp4?"));
+		assert_eq!(external.media.alt_url, "");
+	}
+
+	#[tokio::test]
 	async fn test_search_fixtures() {
 		let posts = post_listing(&fixture("search_posts.json")["data"]["search"]["general"]["posts"]);
 		assert_eq!(posts["data"]["after"], "24");
