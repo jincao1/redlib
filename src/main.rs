@@ -10,7 +10,7 @@ use futures_lite::FutureExt;
 use hyper::{header::HeaderValue, Request, Response};
 use log::{info, warn};
 use redlib::body::Body;
-use redlib::client::{canonical_path, proxy, rate_limit_check, CLIENT};
+use redlib::client::{canonical_path, proxy, CLIENT};
 use redlib::server::{self, RequestExt};
 use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, headers, instance_info, post, search, settings, subreddit, user};
@@ -189,20 +189,6 @@ async fn main() {
 		.get_matches();
 
 	redlib::backends::log_orders();
-
-	match rate_limit_check().await {
-		Ok(()) => {
-			info!("[✅] Rate limit check passed");
-		}
-		Err(e) => {
-			let mut message = format!("Rate limit check failed: {e}");
-			message += "\nThis may cause issues with the rate limit.";
-			message += "\nPlease report this error with the above information.";
-			message += "\nhttps://github.com/Nachtalb/redlib/issues/new?labels=bug&title=%F0%9F%90%9B+Bug+Report%3A+Rate+limit+mismatch";
-			warn!("{}", message);
-			eprintln!("{message}");
-		}
-	}
 
 	let address = matches.get_one::<String>("address").unwrap();
 	let port = matches.get_one::<u16>("port").unwrap();
