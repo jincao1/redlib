@@ -343,6 +343,8 @@ async fn all(path: &str, sort: &str) -> Result<Value, String> {
 		.as_array()
 		.into_iter()
 		.flatten()
+		// Ads are posts too, marked by their `adPayload`
+		.filter(|edge| edge["node"]["adPayload"].is_null())
 		.filter_map(|edge| edge["node"]["groupId"].as_str())
 		.filter(|id| id.starts_with("t3_"))
 		.collect();
