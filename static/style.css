@@ -1913,6 +1913,10 @@ aside.prefs {
     margin-top: 20px;
 }
 
+#save:focus {
+    outline: 2px solid var(--accent);
+}
+
 #save {
     background: var(--highlighted);
     padding: 10px 15px;
