@@ -809,6 +809,10 @@ button.submit:hover > svg {
     outline: none;
 }
 
+#search_sort #inside {
+    max-width: none;
+}
+
 #sort_options + #timeframe:not(#search_sort #timeframe) {
     border-radius: 5px 0px 0px 5px;
 }
