@@ -10,6 +10,11 @@ updates:
     groups:
       cargo:
         update-types: [minor, patch]
+    ignore:
+      # bincode is dead: 3.0.0 is only a compile_error!, and 2.x changes the
+      # format of exported settings codes
+      - dependency-name: bincode
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
