@@ -26,6 +26,7 @@ Without Docker, download a binary from the [`latest` release](https://github.com
 Bugs present in upstream Redlib that are fixed here:
 
 - **Rate-limit counter wrapped around**: requests near the end of the quota could push it below zero to 65535, which skipped the token refresh ([redlib-org#586](https://github.com/redlib-org/redlib/pull/586)).
+- **The fallback token login was dead**: after 5 failed Android app logins, Redlib asked `/api/v1/access_token` for a token with a web client ID, which Reddit answers with `401 Unauthorized`. It now gets the anonymous `token_v2` the website gets, by answering the JS challenge on `www.reddit.com`.
 - **`/commits.atom` and `/instances.json` crashed the request** when GitHub was unreachable. They now serve the last good copy, or a 502 ([redlib-org#396](https://github.com/redlib-org/redlib/pull/396), ported).
 - **Error pages called fork builds outdated**: the update check compared the instance's commit with upstream's commit list, so every fork build was "at least 20 commits old". It now checks the repository in `REDLIB_SOURCE_URL`.
 - **Error pages were cluttered**: the whole message filled the heading above six spaced-out lines, and "Report an issue" opened upstream. They now show the error, one line of detail, the requested Reddit URL and one link row (Reddit status, report an issue on this fork, try another instance). An outdated instance gets a red bar above the footer instead of a status line.
@@ -36,10 +37,12 @@ Bugs present in upstream Redlib that are fixed here:
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
 - **Share links to posts on a user's profile** (`/u/<name>/s/<id>`) showed "Nothing here" ([redlib-org#560](https://github.com/redlib-org/redlib/pull/560)).
 - **Videos transcoded by Reddit** (`rich:video`, e.g. external GIF hosts) had no player; CMAF video format is supported ([redlib-org#549](https://github.com/redlib-org/redlib/pull/549)).
+- **External videos and packaged media didn't play**: Reddit's copies of Streamable and other external clips come as `external-packaged-media.redd.it` MP4s, which Redlib left unproxied (blocked by the CSP) and announced as HLS. They are now proxied under `/packaged-external/` (and `packaged-media.redd.it` under `/packaged/`), and the non-HLS fallback uses Reddit's muxed MP4, which has sound ([polak14 `29f1835`](https://github.com/polak14/redlib/commit/29f18352cf54be4ffe579f773552acd0c45cdd08)).
 - **Video Speed Controller overlays landed in the wrong place**: post media, comment images and the comment sidebar had no positioned container ([Sparronator9999 `ed63495`](https://github.com/Sparronator9999/redlib/commit/ed63495b12cf5d6b66d87c0ed43055e498423a08)).
 - **Inconsistent margins** inside posts and comments, and headings without margins; empty zero-width-space paragraphs no longer add gaps ([redlib-org#413](https://github.com/redlib-org/redlib/pull/413)).
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
+- **"Enable HLS to view with audio" showed on every video**, also when the MP4 played without HLS has sound or the video has none. It now only shows when HLS is the only way to hear it.
 - **Settings codes broke on every new setting**: codes exported before a new field was added failed to restore. See [Settings codes](#settings-codes).
 - **Comment search had no submit button.**
 - **Large numbers** show as `10K` instead of `10.0K`.
@@ -105,6 +108,12 @@ Own features:
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 - **`/healthz/reddit` endpoint**: for status pages. Reports how the last 20 post pages visitors opened went (`ok`, `scraped`, `blocked`) and returns `503` when fewer than half got Reddit's JSON. It never contacts Reddit itself. `/healthz/reddit.json` serves the same status as a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge).
 - **The footer shows the running commit**: a GitHub icon and the short commit hash link to the source repository, in place of the version number and the separate "Code" link. `/info` shows the same: a Source row and the short commit linked to the commit itself (full hash on hover), with no crate version, and the deploy date to the second.
+- **Search tabs like Reddit's**: Posts, Comments, Media, Communities and People.
+  Each tab is a plain link with only its own filters (post type, sort, time),
+  so they work without JavaScript. Results come from `DynamicSearch`, the query
+  the Android app uses for its search tabs. "Show more" adds the next results
+  below, or opens them as the next page without JavaScript
+  ([#69](https://github.com/Nachtalb/redlib/issues/69)).
 
 ## Configuration
 
@@ -170,7 +179,7 @@ With `REDLIB_ENABLE_RSS=on`, append `.rss` to a page URL, as on Reddit. Both `/r
 Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rate limits, failed token refreshes, broken media):
 
 - **wreq** `6.0.0-rc.28` → `0.16.1` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.1 also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
-- The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a random platform it ships on, and switches to another one when Reddit refuses every session (at most once a minute).
+- The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a platform it ships on, mostly versions Reddit serves anonymous JSON to. When Reddit blocks the current one, it leaves it out for a few hours and switches to another, as it does when Reddit refuses every session (at most once a minute).
 - **hyper** `0.14` → `1.x` for the server, with graceful shutdown.
 - **Spoofed Android app versions** refreshed from Nov 2024 builds to Reddit 2026.33–2026.42 on Android 12–16, with a working `update_oauth_resources.sh` ([polak14 `e19df3b`](https://github.com/polak14/redlib/commit/e19df3b54e2a9b7628a09453bad1afb64b399df8)).
 - **hls.js** `1.5.1` → `1.7.3`.
@@ -182,7 +191,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - **`Dockerfile` and `Dockerfile.ubuntu`**: they packaged upstream release binaries, which this fork doesn't publish. `Dockerfile.distroless` is the only image build.
 - **Docker `HEALTHCHECK`** in `compose.yaml` and `compose.dev.yaml`: it used `wget`, which the image doesn't have. Probe `/healthz` instead.
 - **`%2fcomments` path encoding** of thread requests ([redlib-org#592](https://github.com/redlib-org/redlib/pull/592), [#591](https://github.com/redlib-org/redlib/issues/591)): Reddit decodes the path before blocking it, so it only marked requests as coming from Redlib.
-- **`/info.txt`** is gone; `/info` and `/info.json` remain.
+- **`/info.txt` and `/info.yaml`** are gone; `/info` and `/info.json` remain.
 - **Upstream's release binary and pull-request workflows** are disabled (`*.disabled`). The container build publishes the binaries, and Lint and Tests run on pull requests.
 
 ## Development
@@ -190,7 +199,8 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - Formatting is enforced with pre-commit and a Lint workflow: `cargo fmt`, [djhtml](https://github.com/rtts/djhtml) for templates, Prettier for CSS and JS, plus whitespace and line-ending checks. Run `pre-commit install` once.
 - `.editorconfig`: tabs for Rust, 4 spaces for templates, CSS and JS, 2 spaces for YAML and JSON.
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
-- A Tests workflow runs `cargo test` on every pull request and push to `main`. Tests that need reddit.com are `#[ignore]`d there; run them locally with `cargo test -- --include-ignored`.
+- A Tests workflow runs `cargo test` on every pull request and push to `main`, including the tests that need reddit.com. Those share one runtime (`client::block_on_shared`), because `CLIENT`'s pooled connections die with the runtime that opened them. Only `test_generic_web_backend` is `#[ignore]`d, because `www.reddit.com` answers GitHub's runners with 403; run it with `cargo test -- --include-ignored`. The tests only emulate a fixed list of browsers Reddit serves anonymous `oauth.reddit.com` JSON to, so they don't depend on the draw. `backends::live_tests` calls each backend directly (every GraphQL query, the session backends) so one can't break unnoticed behind another; the session backends use a throwaway account's `REDLIB_REDDIT_COOKIE` from a repository secret and skip without it, and Obscura's test runs in its own job with `--features obscura`.
+- A manual Fingerprints workflow asks Reddit about every browser the client can emulate, writes the table to the run summary, and fails when the tests' list has one Reddit blocks.
 - A new push cancels the Lint, Tests and Container build runs still going for the same branch.
 - CI only runs when files it checks change: a commit that touches only Markdown runs Lint but no Tests or Container build.
 - Dependabot opens weekly update PRs for crates, GitHub Actions and pre-commit hooks, grouped into one PR each.

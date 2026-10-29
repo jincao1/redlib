@@ -7,13 +7,14 @@
 
 use super::{json as reddit_json, Backend, Failure, Fetch, Kind};
 use crate::client::{CLIENT, OAUTH_CLIENT};
+use crate::oauth::force_refresh_token;
 use crate::utils::{enable_gql, format_url, param};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
-use log::debug;
+use log::{debug, warn};
 use serde_json::{json as json_value, Value};
 
-const GQL_URL: &str = "https://gql-fed.reddit.com/";
+pub(crate) const GQL_URL: &str = "https://gql-fed.reddit.com/";
 
 // Persisted query ID from the Android app; Reddit rejects raw query text.
 // Source: github.com/Amqx/reddit-gql `src/operations.ts`, or the APK's Apollo classes.
@@ -43,6 +44,10 @@ impl Backend for Gql {
 		Box::pin(async move {
 			match json(path, quarantine).await {
 				None => Err(Failure::Unsupported),
+				// Quarantined subreddits stay unavailable here even after opting
+				// in, so let the next backend try.
+				Some(Err(reason)) if quarantine && (reason == "quarantined" || reason == "gated") => Err(Failure::Unsupported),
+				Some(Err(reason)) if UNAVAILABLE_REASONS.contains(&reason.as_str()) => Err(Failure::Final(reason)),
 				Some(result) => result.map_err(Failure::Invalid),
 			}
 		})
@@ -58,10 +63,11 @@ pub async fn json(path: &str, quarantine: bool) -> Option<Result<Value, String>>
 	let segments: Vec<&str> = route.trim_end_matches(".json").split('/').filter(|s| !s.is_empty()).collect();
 	Some(match segments.as_slice() {
 		["by_id", ids] => posts_by_ids(ids.split(',').collect()).await,
-		["r", sub, "about"] => about(sub).await,
-		["search"] => search(path, None).await,
-		["r", sub, "search"] => search(path, Some(sub)).await,
-		["subreddits", "search"] => search_subreddits(path).await,
+		["r", sub, "about"] => about(sub, quarantine).await,
+		["search"] => search(path, None, search_pane(path)).await,
+		["r", sub, "search"] => search(path, Some(sub), search_pane(path)).await,
+		["subreddits", "search"] => search(path, None, "communities").await,
+		["users", "search"] => search(path, None, "people").await,
 		["user", name, "about"] => user_about(name).await,
 		["user", name, "submitted"] => user_posts(path, name, param(path, "after").as_deref()).await,
 		["user", name, "comments"] => user_comments(path, name, param(path, "after").as_deref()).await,
@@ -134,8 +140,29 @@ fn comment_tree(response: &Value, post_id: &str) -> Result<Vec<Value>, String> {
 	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
 		.as_array()
 		.ok_or_else(|| format!("No comments in response: {}", response["errors"]))?;
-	Ok(nest(trees.iter().filter_map(|tree| item(tree, post_id)).collect()))
+	Ok(nest(items(trees, post_id)))
 }
+
+fn items(trees: &[Value], post_id: &str) -> Vec<(u64, Value)> {
+	trees
+		.iter()
+		.enumerate()
+		.filter_map(|(i, tree)| {
+			if tree["node"]["__typename"] != "DeletedComment" {
+				return item(tree, post_id);
+			}
+			// Deleted comments have no ID, but their first reply names them as its parent
+			let mut tree = tree.clone();
+			if let Some(reply) = trees.get(i + 1).filter(|next| next["depth"].as_u64() == tree["depth"].as_u64().map(|depth| depth + 1)) {
+				tree["node"]["id"] = reply["parentId"].clone();
+			}
+			item(&tree, post_id)
+		})
+		.collect()
+}
+
+/// Of 600 per token; JSON refreshes at 10 of 100.
+const GQL_LOW_RATE_LIMIT: f32 = 60.0;
 
 /// Runs a persisted query. Fields that time out upstream come back null with an
 /// error next to the data; one retry usually fills them in.
@@ -148,7 +175,12 @@ async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, 
 
 	let mut response = Value::Null;
 	for _ in 0..2 {
-		let mut builder = CLIENT.load_full().post(GQL_URL);
+		let mut builder = CLIENT
+			.load_full()
+			.post(GQL_URL)
+			.header("X-APOLLO-OPERATION-NAME", operation)
+			.header("X-APOLLO-OPERATION-ID", hash)
+			.header("Accept", "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json");
 		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
 			// `json()` sets its own; a duplicate Content-Type fails every query
 			if !key.eq_ignore_ascii_case("content-type") {
@@ -157,6 +189,11 @@ async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, 
 		}
 		let res = builder.json(&body).send().await.map_err(|e| e.to_string())?;
 		let status = res.status();
+		let remaining = res.headers().get("x-ratelimit-remaining").and_then(|v| v.to_str().ok()?.parse::<f32>().ok());
+		if remaining.is_some_and(|left| left < GQL_LOW_RATE_LIMIT) {
+			warn!("gql rate limit {remaining:?} is low, refreshing the token");
+			tokio::spawn(force_refresh_token());
+		}
 		response = res.json().await.map_err(|e| format!("{operation} returned {status}: {e}"))?;
 
 		if response["data"].is_null() {
@@ -339,6 +376,8 @@ async fn all(path: &str, sort: &str) -> Result<Value, String> {
 		.as_array()
 		.into_iter()
 		.flatten()
+		// Ads are posts too, marked by their `adPayload`
+		.filter(|edge| edge["node"]["adPayload"].is_null())
 		.filter_map(|edge| edge["node"]["groupId"].as_str())
 		.filter(|id| id.starts_with("t3_"))
 		.collect();
@@ -372,8 +411,9 @@ fn post(node: &Value) -> Option<Value> {
 		"author_flair_text": node["authorFlair"]["text"],
 		"author_flair_background_color": node["authorFlair"]["template"]["backgroundColor"],
 		"author_flair_text_color": node["authorFlair"]["textColor"].as_str().map(str::to_lowercase),
-		"subreddit": node["subreddit"]["name"],
-		"subreddit_name_prefixed": node["subreddit"]["prefixedName"],
+		// Posts on a user's profile (`ProfilePost`) have a profile instead of a subreddit
+		"subreddit": node["subreddit"]["name"].as_str().or(node["profile"]["name"].as_str()),
+		"subreddit_name_prefixed": node["subreddit"]["prefixedName"].as_str().or(node["profile"]["redditorInfo"]["prefixedName"].as_str()),
 		"permalink": node["permalink"],
 		"url": node["url"],
 		"domain": node["domain"],
@@ -401,7 +441,8 @@ fn post(node: &Value) -> Option<Value> {
 		"thumbnail": thumbnail["url"].as_str().unwrap_or_default(),
 		"thumbnail_width": thumbnail["dimensions"]["width"],
 		"thumbnail_height": thumbnail["dimensions"]["height"],
-		"post_hint": node["postHint"].as_str().map(|hint| hint.to_lowercase().replace('_', ":")),
+		// Search results only name the type of their media
+		"post_hint": node["postHint"].as_str().or(node["media"]["typeHint"].as_str().filter(|hint| *hint == "IMAGE")).map(|hint| hint.to_lowercase().replace('_', ":")),
 		"all_awardings": awards(node),
 	});
 	if node["isSelfPost"] != true {
@@ -414,7 +455,10 @@ fn post(node: &Value) -> Option<Value> {
 	}
 
 	let streaming = &node["media"]["streaming"];
-	if let Some(hls_url) = streaming["hlsUrl"].as_str() {
+	if streaming.is_object() {
+		// Reddit's copies of external videos (Streamable, ...) give an MP4 as
+		// `hlsUrl` too, which must not be played as HLS.
+		let hls_url = streaming["hlsUrl"].as_str().filter(|url| url.contains(".m3u8"));
 		data["secure_media"] = json_value!({ "reddit_video": { "fallback_url": video_fallback_url(node, streaming), "hls_url": hls_url, "is_gif": streaming["isGif"] == true } });
 	}
 
@@ -442,12 +486,27 @@ fn post(node: &Value) -> Option<Value> {
 	Some(json_value!({ "kind": "t3", "data": data }))
 }
 
-const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
+pub(crate) const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
 
-async fn about(name: &str) -> Result<Value, String> {
-	let variables = json_value!({ "subredditName": name, "filterGated": false, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false });
+/// Why Reddit won't show a subreddit, as the JSON API's `reason` names it.
+const UNAVAILABLE_REASONS: [&str; 4] = ["private", "banned", "quarantined", "gated"];
+
+async fn about(name: &str, quarantine: bool) -> Result<Value, String> {
+	let variables = json_value!({ "subredditName": name, "filterGated": !quarantine, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false });
 	let response = query("SubredditInfoByName", SUBREDDIT_INFO_HASH, &variables).await?;
-	subreddit(&response["data"]["subredditInfoByName"]).ok_or_else(|| format!("r/{name} not found"))
+	about_json(&response["data"]["subredditInfoByName"], name)
+}
+
+/// The `about.json` of a `SubredditInfoByName` node, or why Reddit won't show
+/// the subreddit (`private`, `banned`, `quarantined` or `gated`).
+fn about_json(node: &Value, name: &str) -> Result<Value, String> {
+	if node["__typename"] == "UnavailableSubreddit" {
+		return Err(match node["forbiddenReason"].as_str() {
+			Some(reason) => reason.to_lowercase(),
+			None => format!("r/{name} is unavailable"),
+		});
+	}
+	subreddit(node).ok_or_else(|| format!("r/{name} not found"))
 }
 
 /// Converts a GraphQL subreddit into a subreddit of the JSON API (`about.json`).
@@ -459,11 +518,11 @@ fn subreddit(node: &Value) -> Option<Value> {
 		"name": node["id"],
 		"display_name": name,
 		"display_name_prefixed": node["prefixedName"],
-		"url": node["path"],
+		"url": node["path"].as_str().map_or_else(|| format!("/r/{name}/"), str::to_string),
 		"title": node["title"],
 		"public_description": node["publicDescriptionText"],
 		"description": description["markdown"],
-		"description_html": format!("<div class=\"md\">{}</div>", render(&richtext["document"], &Value::Null)),
+		"description_html": Some(render(&richtext["document"], &Value::Null)).filter(|html| !html.is_empty()).map(|html| format!("<div class=\"md\">{html}</div>")),
 		"community_icon": node["styles"]["icon"],
 		"icon_img": node["styles"]["legacyIcon"]["url"],
 		"subscribers": node["subscribersCount"],
@@ -473,50 +532,138 @@ fn subreddit(node: &Value) -> Option<Value> {
 	} }))
 }
 
-const SEARCH_POSTS_HASH: &str = "8610e33521c90caa8d12576800c18b708ce0d19df3dfac8e2aad55d9860e4bf9";
-const SEARCH_COMMUNITIES_HASH: &str = "a3333069c1ead3ceec6d9bf4da4185ff584f69d0ba8b586e545b32ea62170932";
+const DYNAMIC_SEARCH_HASH: &str = "4acac653e5aac2ae2f08114d07ba7582e852464a57e324547c259ea3ef2ebd40";
 
-/// Variables of a search query for the search `path`; its cursors are the base64 of the JSON API's `after`.
-fn search_variables(path: &str, query: String) -> Value {
-	let mut variables = json_value!({
-		"query": query,
-		"filters": [],
-		"productSurface": "",
-		"pageSize": param(path, "limit").and_then(|l| l.parse::<u32>().ok()).unwrap_or(25),
-	});
-	if let Some(after) = param(path, "after").filter(|a| !a.is_empty()) {
-		variables["afterCursor"] = STANDARD.encode(after).into();
+/// The tab of the app's search a post search `path` asks for: its `type` is
+/// `comment`, `media` or a post search.
+fn search_pane(path: &str) -> &'static str {
+	match param(path, "type").as_deref() {
+		Some("comment") => "comments",
+		Some("media") => "media",
+		_ => "posts",
 	}
-	variables
 }
 
-async fn search(path: &str, sub: Option<&str>) -> Result<Value, String> {
-	let mut query = param(path, "q").unwrap_or_default();
+/// Variables of the app's search (`DynamicSearch`) for the search `path`.
+/// Sort, time and post types go in `filters` like the app's filter chips put
+/// them; the page cursor is the JSON API's `after`.
+fn search_variables(path: &str, text: String, pane: &str) -> Value {
+	let nsfw = param(path, "include_over_18").is_some();
+	let mut filters = vec![("safe_search", if nsfw { "off" } else { "on" }.to_string())];
+	let sort = param(path, "sort").filter(|s| !s.is_empty());
+	if let Some(sort) = &sort {
+		filters.push(("sort", sort.to_uppercase()));
+	}
+	// The app clears the time range for these sorts
+	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && !matches!(sort.as_deref(), Some("hot" | "new"))) {
+		filters.push(("time_range", range));
+	}
+	if let Some(types) = param(path, "post_types").filter(|t| !t.is_empty() && t != "all") {
+		filters.push(("post_types", types));
+	}
+	let options = [
+		("page_type", "search_results".to_string()),
+		("pane", pane.to_string()),
+		("pref_allow_nsfw", if nsfw { "1" } else { "0" }.to_string()),
+		("is_eligible_for_kwf", "0".to_string()),
+		("after", param(path, "after").unwrap_or_default()),
+		("treatment", "default".to_string()),
+	];
+	let inputs = |pairs: &[(&str, String)]| pairs.iter().map(|(key, value)| json_value!({ "key": key, "value": value })).collect::<Vec<_>>();
+	// One ID per query text, so its pages share one like the app's do
+	let mut hasher = std::hash::DefaultHasher::new();
+	std::hash::Hash::hash(&text, &mut hasher);
+	let hash = std::hash::Hasher::finish(&hasher);
+	let query_id = uuid::Builder::from_random_bytes((u128::from(hash) << 64 | u128::from(hash.rotate_left(32))).to_le_bytes()).into_uuid();
+	json_value!({
+		"query": text,
+		"queryId": query_id.to_string(),
+		"filters": inputs(&filters),
+		"options": inputs(&options),
+		"includeSubredditUnit": true,
+	})
+}
+
+/// One tab (`pane`) of the app's search as a JSON API listing: posts, comments,
+/// subreddits or users.
+async fn search(path: &str, sub: Option<&str>, pane: &str) -> Result<Value, String> {
+	let mut text = param(path, "q").unwrap_or_default();
 	if let Some(sub) = sub.filter(|_| param(path, "restrict_sr").is_some_and(|r| !r.is_empty())) {
-		query = format!("{query} subreddit:{sub}");
+		text = format!("{text} subreddit:{sub}");
 	}
-	let sort = param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "relevance".to_string());
-	let mut variables = search_variables(path, query);
-	variables["sort"] = sort.to_uppercase().into();
-	if let Some(range) = param(path, "t").filter(|t| !t.is_empty() && t != "all" && sort != "new") {
-		variables["filters"] = json_value!([{ "key": "time_range", "value": range }]);
-	}
-	let mut listing = feed("SearchPosts", SEARCH_POSTS_HASH, variables, "/search/general/posts").await?;
-	if param(path, "include_over_18").is_none() {
-		if let Some(posts) = listing["data"]["children"].as_array_mut() {
-			posts.retain(|post| post["data"]["over_18"] != true);
+	// The media tab always searches all media types; a single type is a post search
+	let pane = if pane == "media" && param(path, "post_types").is_some_and(|t| !t.is_empty() && t != "all") {
+		"posts"
+	} else {
+		pane
+	};
+	let variables = search_variables(path, text, pane);
+	let response = query("DynamicSearch", DYNAMIC_SEARCH_HASH, &variables).await?;
+	let mut listing = search_listing(&response).ok_or_else(|| format!("DynamicSearch returned no results: {}", response["errors"]))?;
+	if let Some(children) = listing["data"]["children"].as_array_mut() {
+		if param(path, "include_over_18").is_none() {
+			children.retain(|child| child["data"]["over_18"] != true);
+		}
+		if let Some(limit) = param(path, "limit").and_then(|l| l.parse().ok()) {
+			children.truncate(limit);
 		}
 	}
 	Ok(listing)
 }
 
-async fn search_subreddits(path: &str) -> Result<Value, String> {
-	let variables = search_variables(path, param(path, "q").unwrap_or_default());
-	let response = query("SearchCommunities", SEARCH_COMMUNITIES_HASH, &variables).await?;
-	let communities = response["data"]["search"]["general"]["communities"]["edges"]
+/// The results of a `DynamicSearch` response as a JSON API listing.
+fn search_listing(response: &Value) -> Option<Value> {
+	let main = response["data"]["search"]["dynamic"]["components"]["main"].as_object()?;
+	let children: Vec<Value> = main["edges"]
 		.as_array()
-		.ok_or("SearchCommunities returned no subreddits")?;
-	Ok(listing(communities.iter().filter_map(|edge| subreddit(&edge["node"])).collect()))
+		.into_iter()
+		.flatten()
+		.flat_map(|edge| edge["node"]["children"].as_array().into_iter().flatten())
+		.filter_map(search_result)
+		.collect();
+	let page = &main["pageInfo"];
+	let after = if page["hasNextPage"] == true { page["endCursor"].clone() } else { Value::Null };
+	Some(json_value!({ "kind": "Listing", "data": { "after": after, "children": children } }))
+}
+
+/// Converts one search result into an item of the JSON API. Ads
+/// (`SearchAdPost`) and anything else that isn't a result give `None`.
+fn search_result(result: &Value) -> Option<Value> {
+	match result["__typename"].as_str()? {
+		"SearchPost" | "SearchMediaPost" => post(&result["post"]),
+		"SearchComment" => search_comment(&result["comment"]),
+		"SearchCommunity" => subreddit(&result["community"]),
+		"SearchAuthor" => search_user(&result["author"]),
+		_ => None,
+	}
+}
+
+/// A comment search result as a comment of the JSON API, with the post it is
+/// on like on user pages.
+fn search_comment(comment: &Value) -> Option<Value> {
+	let post = &comment["postInfo"];
+	let (_, mut item) = item(&json_value!({ "depth": 0, "parentId": post["id"], "node": comment }), "")?;
+	let subreddit = post["subreddit"]["name"].as_str().unwrap_or_default();
+	let post_id = post["id"].as_str()?.trim_start_matches("t3_");
+	let id = item["data"]["id"].as_str()?.to_string();
+	item["data"]["link_title"] = post["title"].clone();
+	item["data"]["link_id"] = post["id"].clone();
+	item["data"]["permalink"] = format!("/r/{subreddit}/comments/{post_id}/comment/{id}/").into();
+	item["data"]["subreddit"] = subreddit.into();
+	item["data"]["over_18"] = (post["isNsfw"] == true).into();
+	Some(item)
+}
+
+/// A people search result as a user of the JSON API (`/users/search`).
+fn search_user(author: &Value) -> Option<Value> {
+	let profile = &author["profileInfo"];
+	Some(json_value!({ "kind": "t2", "data": {
+		"name": author["name"].as_str()?,
+		"created_utc": timestamp(&profile["createdAt"]),
+		"total_karma": author["karma"]["total"],
+		"icon_img": author["icon"]["url"],
+		"subreddit": { "over_18": profile["isNsfw"] == true },
+	} }))
 }
 
 const PROFILE_HASH: &str = "096ccf5d943485822cb6d3e0dc13f9977da1984514e1d539e1ed38a51158e689";
@@ -674,8 +821,14 @@ fn merge_overview(posts: &Value, comments: &Value, post_after: &str, comment_aft
 	json_value!({ "kind": "Listing", "data": { "after": after, "children": children } })
 }
 
-/// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
+/// The MP4 to play without HLS. The muxed MP4 or the download has sound,
+/// unlike the JSON API's `fallback_url`, and also exists for external videos.
+/// Without them, v.redd.it's video-only rendition that fits the video is used.
 fn video_fallback_url(node: &Value, streaming: &Value) -> String {
+	let media = &node["media"];
+	if let Some(url) = media["packagedMedia"]["muxedMp4s"]["recommended"]["url"].as_str().or(media["download"]["url"].as_str()) {
+		return url.to_string();
+	}
 	let dimensions = &streaming["dimensions"];
 	let size = dimensions["width"].as_u64().unwrap_or_default().min(dimensions["height"].as_u64().unwrap_or_default());
 	let rendition = [1080, 720, 480, 360, 240].into_iter().find(|r| *r <= size).unwrap_or(240);
@@ -869,7 +1022,7 @@ mod tests {
 			comment("t1_d", 0, None),
 			json_value!({ "depth": 0, "parentId": null, "more": { "count": 90, "cursor": "c2" } }),
 		];
-		let comments = nest(trees.iter().filter_map(|t| item(t, "p")).collect());
+		let comments = nest(items(&trees, "p"));
 		assert_eq!(comments.len(), 3);
 
 		let a = &comments[0]["data"];
@@ -877,6 +1030,7 @@ mod tests {
 		let replies = a["replies"]["data"]["children"].as_array().unwrap();
 		assert_eq!(replies.len(), 2);
 		assert_eq!(replies[0]["data"]["author"], "[deleted]");
+		assert_eq!(replies[0]["data"]["id"], "x");
 		assert_eq!(replies[0]["data"]["replies"]["data"]["children"][0]["data"]["id"], "c");
 		assert_eq!(replies[1]["kind"], "more");
 		assert_eq!(replies[1]["data"]["parent_id"], "t1_a");
@@ -973,23 +1127,149 @@ mod tests {
 		assert_eq!(video.title, "Secret knowledge");
 		assert_eq!(video.media.url, "/vid/apxzua5q5ixh1/CMAF/720.mp4");
 		assert!(video.media.alt_url.starts_with("/hls/apxzua5q5ixh1/HLSPlaylist.m3u8"));
+		assert!(video.media.needs_hls_for_audio);
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
 	}
 
+	#[test]
+	fn test_subreddit_without_sidebar() {
+		let empty = subreddit(&json_value!({ "name": "x", "description": { "richtext": "{\"document\":[]}" } })).unwrap();
+		assert!(empty["data"]["description_html"].is_null());
+		let doc = r#"{"document":[{"e":"par","c":[{"e":"text","t":"hi"}]}]}"#;
+		let full = subreddit(&json_value!({ "name": "x", "description": { "richtext": doc } })).unwrap();
+		assert_eq!(full["data"]["description_html"], "<div class=\"md\"><p>hi</p></div>");
+	}
+
+	#[tokio::test]
+	async fn test_packaged_media_fixture() {
+		let posts = fixture("packaged_media.json")["data"]["postsInfoByIds"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter_map(post)
+			.collect::<Vec<_>>();
+
+		// The muxed MP4 has sound, unlike v.redd.it's CMAF renditions
+		let hosted = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(hosted.post_type, "video");
+		assert!(hosted.media.url.starts_with("/packaged/hynwcs24l1se1/muxed-high.mp4?"));
+		assert!(hosted.media.alt_url.starts_with("/hls/hynwcs24l1se1/HLSPlaylist.m3u8"));
+		assert!(!hosted.media.needs_hls_for_audio);
+
+		// Reddit's copy of a Streamable clip is an MP4 behind `hlsUrl`
+		let external = crate::utils::parse_post(&posts[1]).await;
+		assert_eq!(external.post_type, "video");
+		assert!(external.media.url.starts_with("/packaged-external/t3_1xhfggw/3p/streamable/9gsuah/video.mp4?"));
+		assert_eq!(external.media.alt_url, "");
+		assert!(!external.media.needs_hls_for_audio);
+	}
+
 	#[tokio::test]
 	async fn test_search_fixtures() {
-		let posts = post_listing(&fixture("search_posts.json")["data"]["search"]["general"]["posts"]);
-		assert_eq!(posts["data"]["after"], "24");
-		let first = crate::utils::parse_post(&posts["data"]["children"][0]).await;
-		assert_eq!(first.title, "Rust features in the future");
+		let listing = |name: &str| search_listing(&fixture(name)).unwrap();
+		let children = |listing: &Value| listing["data"]["children"].as_array().unwrap().clone();
 
-		let communities = &fixture("search_communities.json")["data"]["search"]["general"]["communities"]["edges"];
-		let subs: Vec<Value> = communities.as_array().unwrap().iter().filter_map(|edge| subreddit(&edge["node"])).collect();
-		assert_eq!(subs.iter().map(|s| crate::utils::val(s, "display_name")).collect::<Vec<_>>(), ["rust", "playrust"]);
-		assert_eq!(crate::utils::val(&subs[0], "url"), "/r/rust/");
-		assert!(subs[0]["data"]["subscribers"].as_f64().is_some());
+		let posts = listing("dynamic_search_posts.json");
+		assert!(posts["data"]["after"].as_str().is_some_and(|after| after.len() > 100));
+		let posts = children(&posts);
+		assert_eq!(posts.len(), 3);
+		let video = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(
+			(video.title.as_str(), video.community.as_str(), video.post_type.as_str()),
+			("Aurora Borealis seen really close", "oddlysatisfying", "video")
+		);
+		assert_eq!(video.author.name, "Original_Act_3481");
+		assert_eq!(crate::utils::parse_post(&posts[1]).await.post_type, "self");
+		assert_eq!(crate::utils::parse_post(&posts[2]).await.post_type, "image");
+
+		let media = children(&listing("dynamic_search_media.json"));
+		let mut types = Vec::new();
+		for post in &media {
+			types.push(crate::utils::parse_post(post).await.post_type);
+		}
+		assert_eq!(types, ["video", "image", "gallery"]);
+
+		let comments = children(&listing("dynamic_search_comments.json"));
+		assert_eq!(comments.len(), 2);
+		let val = |key| crate::utils::val(&comments[0], key);
+		assert_eq!(comments[0]["kind"], "t1");
+		assert_eq!((val("author"), val("subreddit")), ("Venomspino".to_string(), "Minecraft".to_string()));
+		assert_eq!(val("link_title"), "New Aurora Cape!");
+		assert_eq!(val("permalink"), "/r/Minecraft/comments/1wsk2m5/comment/pcm2c6z/");
+		assert!(val("body_html").contains("Aurora Borealis!?"));
+
+		let communities = children(&listing("dynamic_search_communities.json"));
+		let names: Vec<String> = communities.iter().map(|s| crate::utils::val(s, "display_name")).collect();
+		assert_eq!(names, ["AuroraBorealis", "northernlights", "BreastfeedingAurora"]);
+		assert_eq!(crate::utils::val(&communities[0], "url"), "/r/AuroraBorealis/");
+		assert!(communities[0]["data"]["subscribers"].as_u64().is_some_and(|s| s > 20000));
+
+		let people = children(&listing("dynamic_search_people.json"));
+		let names: Vec<String> = people.iter().map(|u| crate::utils::val(u, "name")).collect();
+		assert_eq!(names, ["auroraborealis", "Auroraborealissa"]);
+		assert_eq!(people[0]["data"]["total_karma"], 1);
+		assert!(people[0]["data"]["created_utc"].as_f64().is_some_and(|c| c > 1.2e9));
+	}
+
+	#[test]
+	fn test_search_leaves_out_ads() {
+		let mut response = fixture("dynamic_search_posts.json");
+		let ad = json_value!({ "__typename": "SearchAdPost", "id": "ad", "post": { "__typename": "AdPost", "id": "t3_ad", "postTitle": "Buy this" } });
+		response["data"]["search"]["dynamic"]["components"]["main"]["edges"][0]["node"]["children"]
+			.as_array_mut()
+			.unwrap()
+			.insert(1, ad);
+		let listing = search_listing(&response).unwrap();
+		assert_eq!(listing["data"]["children"].as_array().unwrap().len(), 3);
+	}
+
+	#[test]
+	fn test_search_variables() {
+		let entries = |list: &Value| {
+			list
+				.as_array()
+				.unwrap()
+				.iter()
+				.map(|e| format!("{}={}", e["key"].as_str().unwrap(), e["value"].as_str().unwrap()))
+				.collect::<Vec<_>>()
+		};
+		let path = "/search.json?q=rust&sort=top&t=week&post_types=image&after=abc&include_over_18=on";
+		let variables = search_variables(path, "rust".into(), "posts");
+		assert_eq!(entries(&variables["filters"]), ["safe_search=off", "sort=TOP", "time_range=week", "post_types=image"]);
+		assert_eq!(
+			entries(&variables["options"]),
+			[
+				"page_type=search_results",
+				"pane=posts",
+				"pref_allow_nsfw=1",
+				"is_eligible_for_kwf=0",
+				"after=abc",
+				"treatment=default"
+			]
+		);
+
+		let variables_new = search_variables("/search.json?q=rust&sort=new&t=week", "rust".into(), "comments");
+		assert_eq!(entries(&variables_new["filters"]), ["safe_search=on", "sort=NEW"]);
+		assert!(entries(&variables_new["options"]).contains(&"after=".to_string()));
+		// The pages of one query share its ID
+		assert_eq!(variables["queryId"], variables_new["queryId"]);
+		assert_ne!(variables["queryId"], search_variables("", "rust async".into(), "posts")["queryId"]);
+
+		assert_eq!(search_pane("/search.json?q=rust&type=comment"), "comments");
+		assert_eq!(search_pane("/r/rust/search.json?q=rust&type=media"), "media");
+		assert_eq!(search_pane("/search.json?q=rust"), "posts");
+	}
+
+	#[test]
+	fn test_profile_posts_name_the_profile() {
+		let node = json_value!({
+			"__typename": "ProfilePost", "id": "t3_1vgbkge", "postTitle": "Hi", "subreddit": null,
+			"profile": { "name": "u_spez", "redditorInfo": { "prefixedName": "u/spez" } },
+		});
+		let post = post(&node).unwrap();
+		assert_eq!((&post["data"]["subreddit"], &post["data"]["subreddit_name_prefixed"]), (&"u_spez".into(), &"u/spez".into()));
 	}
 
 	#[test]
@@ -1025,5 +1305,16 @@ mod tests {
 			html.contains(r#"<h3>Please read <a href="https://www.rust-lang.org/policies/code-of-conduct"><strong>The Rust Community Code of Conduct</strong></a></h3><hr>"#),
 			"{html}"
 		);
+	}
+
+	#[test]
+	fn test_unavailable_subreddits() {
+		for (reason, expected) in [("PRIVATE", "private"), ("BANNED", "banned"), ("QUARANTINED", "quarantined"), ("GATED", "gated")] {
+			let node = json_value!({ "__typename": "UnavailableSubreddit", "forbiddenReason": reason, "name": "x" });
+			assert_eq!(about_json(&node, "x"), Err(expected.to_string()));
+		}
+		let node = json_value!({ "__typename": "UnavailableSubreddit", "name": "x" });
+		assert_eq!(about_json(&node, "x"), Err("r/x is unavailable".to_string()));
+		assert!(about_json(&fixture("subreddit_info.json")["data"]["subredditInfoByName"], "rust").is_ok());
 	}
 }

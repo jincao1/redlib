@@ -10,7 +10,7 @@ use futures_lite::FutureExt;
 use hyper::{header::HeaderValue, Request, Response};
 use log::{info, warn};
 use redlib::body::Body;
-use redlib::client::{canonical_path, proxy, rate_limit_check, CLIENT};
+use redlib::client::{canonical_path, proxy, CLIENT};
 use redlib::server::{self, RequestExt};
 use redlib::utils::{error, get_source_url, redirect, ThemeAssets};
 use redlib::{config, duplicates, headers, instance_info, post, search, settings, subreddit, user};
@@ -190,20 +190,6 @@ async fn main() {
 
 	redlib::backends::log_orders();
 
-	match rate_limit_check().await {
-		Ok(()) => {
-			info!("[✅] Rate limit check passed");
-		}
-		Err(e) => {
-			let mut message = format!("Rate limit check failed: {e}");
-			message += "\nThis may cause issues with the rate limit.";
-			message += "\nPlease report this error with the above information.";
-			message += "\nhttps://github.com/Nachtalb/redlib/issues/new?labels=bug&title=%F0%9F%90%9B+Bug+Report%3A+Rate+limit+mismatch";
-			warn!("{}", message);
-			eprintln!("{message}");
-		}
-	}
-
 	let address = matches.get_one::<String>("address").unwrap();
 	let port = matches.get_one::<u16>("port").unwrap();
 	let hsts = matches.get_one("hsts").map(|m: &String| m.as_str());
@@ -316,6 +302,9 @@ async fn main() {
 	app
 		.at("/loadMoreComments.js")
 		.get(|_| resource(include_str!("../static/loadMoreComments.js"), "text/javascript", false).boxed());
+	app
+		.at("/searchTabs.js")
+		.get(|_| resource(include_str!("../static/searchTabs.js"), "text/javascript", false).boxed());
 
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
@@ -323,6 +312,10 @@ async fn main() {
 	// Proxy media through Redlib
 	app.at("/vid/:id/:prefix/:size").get(|r| proxy(r, "https://v.redd.it/{id}/{prefix}_{size}").boxed());
 	app.at("/hls/:id/*path").get(|r| proxy(r, "https://v.redd.it/{id}/{path}").boxed());
+	app.at("/packaged/*path").get(|r| proxy(r, "https://packaged-media.redd.it/{path}").boxed());
+	app
+		.at("/packaged-external/*path")
+		.get(|r| proxy(r, "https://external-packaged-media.redd.it/{path}").boxed());
 	app.at("/img/*path").get(|r| proxy(r, "https://i.redd.it/{path}").boxed());
 	app.at("/thumb/:point/:id").get(|r| proxy(r, "https://{point}.thumbs.redditmedia.com/{id}").boxed());
 	app.at("/emoji/:id/:name").get(|r| proxy(r, "https://emoji.redditmedia.com/{id}/{name}").boxed());

@@ -27,7 +27,7 @@ ENV CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_RUSTFLAGS="--cfg libc_unstable_musl_v1_
 ENV CFLAGS_i686_unknown_linux_musl="-msse2" \
     CXXFLAGS_i686_unknown_linux_musl="-msse2"
 
-RUN rustup toolchain install 1.98 --profile minimal --no-self-update --target $CARGO_BUILD_TARGET && rustup default 1.98
+RUN rustup toolchain install 1.99 --profile minimal --no-self-update --target $CARGO_BUILD_TARGET && rustup default 1.99
 
 WORKDIR /redlib
 COPY . ./

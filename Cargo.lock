@@ -413,9 +413,9 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "9.1.0"
+version = "9.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6737ce8b81460bf9407909f73ff50bf13f7cb8577e1e76715f57ed0eba58ba44"
+checksum = "627b7cfb0578f0eafce087a90fcd40add1231900b69e4d4de2d456260a4f5d81"
 dependencies = [
  "alloc-no-stdlib 3.0.0",
  "alloc-stdlib 0.3.0",
@@ -695,7 +695,7 @@ version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cae36683101b2899f48bd31f8db9839437356188e3b1ff23096e73dab09ba8fe"
 dependencies = [
- "brotli 9.1.0",
+ "brotli 9.1.1",
  "compression-core",
  "flate2",
  "memchr",
@@ -1540,9 +1540,9 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "globset"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
+checksum = "f98b0d85522dc0a824cfebbc9594ff4a9b289c568bea0370319dfbdf20ccdd2d"
 dependencies = [
  "aho-corasick",
  "bstr",
@@ -2320,7 +2320,7 @@ dependencies = [
 [[package]]
 name = "obscura"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "anyhow",
  "obscura-browser",
@@ -2335,7 +2335,7 @@ dependencies = [
 [[package]]
 name = "obscura-browser"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2354,7 +2354,7 @@ dependencies = [
 [[package]]
 name = "obscura-dom"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "cssparser 0.34.0",
  "html5ever 0.39.0",
@@ -2369,7 +2369,7 @@ dependencies = [
 [[package]]
 name = "obscura-js"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2402,7 +2402,7 @@ dependencies = [
 [[package]]
 name = "obscura-net"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 dependencies = [
  "async-trait",
  "encoding_rs",
@@ -2424,7 +2424,7 @@ dependencies = [
 [[package]]
 name = "obscura-ssrf"
 version = "0.1.0"
-source = "git+https://github.com/h4ckf0r0day/obscura?rev=09790944a405ba81a7df27bc2577c6b0db283900#09790944a405ba81a7df27bc2577c6b0db283900"
+source = "git+https://github.com/h4ckf0r0day/obscura?rev=3285fbc2357a60aa3a8dcce9fda95a155099fc42#3285fbc2357a60aa3a8dcce9fda95a155099fc42"
 
 [[package]]
 name = "once_cell"
@@ -2962,7 +2962,7 @@ dependencies = [
  "base2048",
  "base64 0.23.1",
  "bincode",
- "brotli 9.1.0",
+ "brotli 9.1.1",
  "build_html",
  "bytes",
  "cached",
@@ -2997,7 +2997,6 @@ dependencies = [
  "serde_json",
  "serde_json_path",
  "serde_urlencoded",
- "serde_yaml",
  "tegen",
  "time",
  "tokio",
@@ -3223,9 +3222,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags",
  "errno",
@@ -3513,19 +3512,6 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
 ]
 
 [[package]]
@@ -3862,9 +3848,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
- "rustix 1.1.5",
+ "rustix 1.1.6",
  "windows-sys 0.61.2",
 ]
 
@@ -4286,12 +4272,6 @@ dependencies = [
  "crypto-common 0.1.7",
  "subtle",
 ]
-
-[[package]]
-name = "unsafe-libyaml"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

@@ -11,6 +11,8 @@
 mod cookied_json;
 pub mod gql;
 mod json;
+#[cfg(test)]
+mod live_tests;
 #[cfg(feature = "obscura")]
 pub mod obscura;
 mod score;
@@ -85,7 +87,7 @@ pub enum Kind {
 	Subreddit,
 	/// A user's profile, overview, posts and comments.
 	User,
-	/// Post and subreddit search.
+	/// Post, comment, subreddit and user search.
 	Search,
 	Wiki,
 	Duplicates,
@@ -109,7 +111,9 @@ impl Kind {
 	/// always blocked for comments, so it goes last there.
 	fn default_order(self) -> &'static str {
 		match self {
-			Self::Post | Self::Subreddit | Self::User | Self::Search => "gql, json, cookied-json, obscura-cookied-json",
+			Self::Post | Self::Subreddit | Self::Search => "gql, json, cookied-json, obscura-cookied-json",
+			// Reddit answers anonymous user JSON with 403 whatever the client
+			Self::User => "gql, cookied-json, obscura-cookied-json",
 			Self::Comments => "gql, cookied-json, obscura-cookied-json, scraped, json",
 			Self::Listing => "json, gql, cookied-json, obscura-cookied-json",
 			Self::Wiki | Self::Duplicates => "json, cookied-json, obscura-cookied-json",
@@ -137,7 +141,7 @@ impl Kind {
 			["duplicates", ..] => Self::Duplicates,
 			["comments", _, ..] | [_, _, "comments", _, ..] => Self::Comments,
 			["user" | "u", ..] => Self::User,
-			["search", ..] | ["subreddits", "search", ..] | ["r", _, "search", ..] => Self::Search,
+			["search", ..] | ["subreddits" | "users", "search", ..] | ["r", _, "search", ..] => Self::Search,
 			["r", _, "wiki", ..] | ["wiki", ..] => Self::Wiki,
 			["r", _, "about", ..] => Self::Subreddit,
 			_ => Self::Listing,
@@ -464,7 +468,7 @@ mod tests {
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS_USER", "nonsense")])]
 	fn test_unusable_order_falls_back_to_the_default() {
-		assert_eq!(names(&order(Kind::User)), in_build(&["gql", "json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::User)), in_build(&["gql", "cookied-json", "obscura-cookied-json"]));
 	}
 
 	#[test]
@@ -491,6 +495,7 @@ mod tests {
 			("/search.json?q=rust", Kind::Search),
 			("/r/rust/search.json?q=async&restrict_sr=on", Kind::Search),
 			("/subreddits/search.json?q=rust&limit=3", Kind::Search),
+			("/users/search.json?q=rust", Kind::Search),
 			("/r/rust/wiki/index.json?raw_json=1", Kind::Wiki),
 			("/duplicates/abc.json", Kind::Duplicates),
 		] {
@@ -545,32 +550,36 @@ mod tests {
 		);
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_localization_popular() {
-		let val = json("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL".to_string(), false).await.unwrap();
-		assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
+	#[test]
+	fn test_localization_popular() {
+		crate::client::block_on_shared(async {
+			let val = json("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL".to_string(), false).await.unwrap();
+			assert_eq!("GLOBAL", val["data"]["geo_filter"].as_str().unwrap());
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_private_sub() {
-		let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
-		assert_eq!(link, Err("private".into()));
+	#[test]
+	fn test_private_sub() {
+		crate::client::block_on_shared(async {
+			let link = json("/r/suicide/about.json?raw_json=1".into(), true).await;
+			assert_eq!(link, Err("private".into()));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_banned_sub() {
-		let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
-		assert_eq!(link, Err("banned".into()));
+	#[test]
+	fn test_banned_sub() {
+		crate::client::block_on_shared(async {
+			let link = json("/r/aaa/about.json?raw_json=1".into(), true).await;
+			assert_eq!(link, Err("banned".into()));
+		});
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_gated_sub() {
-		// quarantine to false to specifically catch when we _don't_ catch it
-		let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
-		assert_eq!(link, Err("gated".into()));
+	#[test]
+	fn test_gated_sub() {
+		crate::client::block_on_shared(async {
+			// quarantine to false to specifically catch when we _don't_ catch it
+			let link = json("/r/drugs/about.json?raw_json=1".into(), false).await;
+			assert_eq!(link, Err("gated".into()));
+		});
 	}
 }

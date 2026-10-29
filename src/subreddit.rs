@@ -455,6 +455,15 @@ pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>,
 	Ok(response)
 }
 
+fn wiki_html(response: &serde_json::Value, page: &str) -> String {
+	let missing = if page == "index" {
+		"<h3>This subreddit has no wiki pages</h3>"
+	} else {
+		"<h3>Wiki page not found</h3>"
+	};
+	rewrite_urls(response["data"]["content_html"].as_str().unwrap_or(missing))
+}
+
 pub async fn wiki(req: Request<Body>) -> Result<Response<Body>, String> {
 	let sub = req.param("sub").unwrap_or_else(|| "reddit.com".to_string());
 	let quarantined = can_access_quarantine(&req, &sub);
@@ -469,8 +478,8 @@ pub async fn wiki(req: Request<Body>) -> Result<Response<Body>, String> {
 
 	match json(path, quarantined).await {
 		Ok(response) => Ok(template(&WikiTemplate {
+			wiki: wiki_html(&response, &page),
 			sub,
-			wiki: rewrite_urls(response["data"]["content_html"].as_str().unwrap_or("<h3>Wiki not found</h3>")),
 			page,
 			prefs: Preferences::new(&req),
 			url,
@@ -655,19 +664,30 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 mod tests {
 	use super::*;
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_fetching_subreddit() {
-		let subreddit = subreddit("rust", false).await;
-		assert!(subreddit.is_ok());
+	#[test]
+	fn test_wiki_html() {
+		let missing = serde_json::json!({ "reason": "PAGE_NOT_CREATED" });
+		assert_eq!(wiki_html(&missing, "index"), "<h3>This subreddit has no wiki pages</h3>");
+		assert_eq!(wiki_html(&missing, "rules"), "<h3>Wiki page not found</h3>");
+		let page = serde_json::json!({ "data": { "content_html": "<p>hi</p>" } });
+		assert_eq!(wiki_html(&page, "index"), "<p>hi</p>");
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
-	#[ignore = "live: needs reddit.com"]
-	async fn test_gated_and_quarantined() {
-		let quarantined = subreddit("edgy", true).await;
-		assert!(quarantined.is_ok());
-		let gated = subreddit("drugs", true).await;
-		assert!(gated.is_ok());
+	#[test]
+	fn test_fetching_subreddit() {
+		crate::client::block_on_shared(async {
+			let subreddit = subreddit("rust", false).await;
+			assert!(subreddit.is_ok());
+		});
+	}
+
+	#[test]
+	fn test_gated_and_quarantined() {
+		crate::client::block_on_shared(async {
+			let quarantined = subreddit("edgy", true).await;
+			assert!(quarantined.is_ok());
+			let gated = subreddit("drugs", true).await;
+			assert!(gated.is_ok());
+		});
 	}
 }

@@ -1,7 +1,9 @@
 //! Reddit's OAuth JSON API with the instance's anonymous app token.
 
-use super::{check_json, non_json_failure, Backend, Failure, Fetch};
-use crate::client::{burn_rate_limit_unit, reddit_get, IntoHyperResponse, OAUTH_IS_ROLLING_OVER, OAUTH_RATELIMIT_REMAINING};
+use super::{check_json, non_json_failure, Backend, Failure, Fetch, Kind};
+use crate::client::{
+	burn_rate_limit_unit, current_emulation, fingerprint_blocked, is_fingerprint_block, reddit_get, IntoHyperResponse, OAUTH_IS_ROLLING_OVER, OAUTH_RATELIMIT_REMAINING,
+};
 use crate::oauth::force_refresh_token;
 use bytes::Buf;
 use log::{error, trace, warn};
@@ -21,6 +23,11 @@ impl Backend for Json {
 	}
 }
 
+/// Only listings tell: threads and user pages are blocked for every fingerprint.
+fn blames_fingerprint(path: &str) -> bool {
+	Kind::of(path) == Kind::Listing
+}
+
 async fn fetch(path: &str, quarantine: bool) -> Result<Value, Failure> {
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
@@ -31,6 +38,7 @@ async fn fetch(path: &str, quarantine: bool) -> Result<Value, Failure> {
 	}
 	burn_rate_limit_unit();
 
+	let emulation = current_emulation();
 	let response = reddit_get(path.to_string(), quarantine)
 		.await
 		.map_err(|e| Failure::Network(format!("Couldn't send request to Reddit: {e} | {path}")))?;
@@ -38,7 +46,12 @@ async fn fetch(path: &str, quarantine: bool) -> Result<Value, Failure> {
 	// Reddit's network security block is an HTML page; private and
 	// quarantined subreddits answer with JSON 403s.
 	let status = response.status();
-	if status == wreq::StatusCode::FORBIDDEN && response.headers().get(wreq_header::CONTENT_TYPE).is_some_and(|v| v.as_bytes().starts_with(b"text/html")) {
+	let content_type = response.headers().get(wreq_header::CONTENT_TYPE).map(|v| v.as_bytes().to_vec());
+	if status == wreq::StatusCode::FORBIDDEN && content_type.as_ref().is_some_and(|v| v.starts_with(b"text/html")) {
+		let body = response.bytes().await.unwrap_or_default();
+		if blames_fingerprint(path) && is_fingerprint_block(status.as_u16(), content_type.as_deref(), &body) {
+			fingerprint_blocked(emulation);
+		}
 		return Err(Failure::Blocked);
 	}
 
@@ -88,5 +101,18 @@ async fn fetch(path: &str, quarantine: bool) -> Result<Value, Failure> {
 			error!("Got an invalid response from reddit {e}. Status code: {status}");
 			Err(non_json_failure(status.as_u16(), &e.to_string(), path))
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_only_listing_blocks_blame_the_fingerprint() {
+		assert!(blames_fingerprint("/r/rust/hot.json?raw_json=1"));
+		assert!(blames_fingerprint("/r/popular/hot.json?geo_filter=GLOBAL&raw_json=1"));
+		assert!(!blames_fingerprint("/r/rust/comments/abc123.json?raw_json=1"));
+		assert!(!blames_fingerprint("/user/spez/about.json?raw_json=1"));
 	}
 }

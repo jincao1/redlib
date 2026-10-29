@@ -71,15 +71,16 @@ jobs:
         uses: actions/cache@v6
         with:
           path: cargo-cache
-          key: cargo-${{ env.PLATFORM_PAIR }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          key: cargo-${{ env.PLATFORM_PAIR }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            cargo-${{ env.PLATFORM_PAIR }}-${{ hashFiles('Cargo.lock') }}-
             cargo-${{ env.PLATFORM_PAIR }}-
 
       - name: Inject cargo cache into the build
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
           builder: ${{ steps.buildx.outputs.name }}
+          # Copying the cache out takes minutes; only needed when deps changed
+          skip-extraction: ${{ steps.cargo-cache.outputs.cache-hit }}
           cache-map: |
             {
               "cargo-cache/registry": { "target": "/root/.cargo/registry", "id": "cargo-registry" },

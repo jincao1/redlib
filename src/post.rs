@@ -255,6 +255,15 @@ fn query_comments(
 	results
 }
 #[allow(clippy::too_many_arguments)]
+/// Whether the author deleted the comment or it was removed, as Reddit marks it.
+fn gone_comment(author: &str, body: &str) -> Option<&'static str> {
+	match (author, body) {
+		("[deleted]", "[deleted]") => Some("deleted"),
+		("[deleted]", "[removed]") | (_, "[ Removed by Reddit ]") => Some("removed"),
+		_ => None,
+	}
+}
+
 fn build_comment(
 	comment: &serde_json::Value,
 	data: &serde_json::Value,
@@ -267,9 +276,9 @@ fn build_comment(
 ) -> Comment {
 	let id = val(comment, "id");
 
-	let body = if (val(comment, "author") == "[deleted]" && val(comment, "body") == "[removed]") || val(comment, "body") == "[ Removed by Reddit ]" {
+	let body = if let Some(state) = gone_comment(&val(comment, "author"), &val(comment, "body")) {
 		format!(
-			"<div class=\"md\"><p>[removed] — <a href=\"https://{}{post_link}{id}\">view removed comment</a></p></div>",
+			"<div class=\"md\"><p>[{state}] — <a href=\"https://{}{post_link}{id}\">view {state} comment</a></p></div>",
 			get_setting("REDLIB_PUSHSHIFT_FRONTEND").unwrap_or_else(|| String::from(crate::config::DEFAULT_PUSHSHIFT_FRONTEND)),
 		)
 	} else {
@@ -356,5 +365,19 @@ fn build_comment(
 		more_count,
 		more_href,
 		prefs: Preferences::new(req),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_gone_comment() {
+		assert_eq!(gone_comment("[deleted]", "[deleted]"), Some("deleted"));
+		assert_eq!(gone_comment("[deleted]", "[removed]"), Some("removed"));
+		assert_eq!(gone_comment("someone", "[ Removed by Reddit ]"), Some("removed"));
+		assert_eq!(gone_comment("someone", "[deleted]"), None);
+		assert_eq!(gone_comment("[deleted]", "hi"), None);
 	}
 }
