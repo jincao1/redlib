@@ -562,6 +562,10 @@ aside {
     width: 100%;
 }
 
+summary:not(.comment_data):hover {
+    text-decoration: underline;
+}
+
 #user_details > label,
 #sub_details > label {
     color: var(--accent);
