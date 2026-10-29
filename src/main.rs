@@ -313,6 +313,9 @@ async fn main() {
 	app
 		.at("/loadMoreComments.js")
 		.get(|_| resource(include_str!("../static/loadMoreComments.js"), "text/javascript", false).boxed());
+	app
+		.at("/searchTabs.js")
+		.get(|_| resource(include_str!("../static/searchTabs.js"), "text/javascript", false).boxed());
 
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());

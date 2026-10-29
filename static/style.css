@@ -916,6 +916,103 @@ main > * > footer > a {
     background: var(--foreground);
 }
 
+/* Search tabs: one row that scrolls sideways on narrow screens */
+#listing_options.search_tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: auto;
+    max-width: 100%;
+    margin: 10px 0 0 0;
+    white-space: nowrap;
+    scrollbar-width: none;
+    /* Scroll shadows without JS: the `local` covers move with the tabs and
+       hide the `scroll` shadows once an edge is reached */
+    --scroll-shadow: color-mix(in srgb, var(--text) 40%, transparent);
+    background:
+        linear-gradient(to right, var(--outside) 40%, transparent) left / 50px 100% no-repeat local,
+        linear-gradient(to left, var(--outside) 40%, transparent) right / 50px 100% no-repeat local,
+        linear-gradient(to right, var(--scroll-shadow), transparent) left / 20px 100% no-repeat scroll,
+        linear-gradient(to left, var(--scroll-shadow), transparent) right / 20px 100% no-repeat scroll,
+        var(--outside);
+}
+
+#listing_options.search_tabs::-webkit-scrollbar {
+    display: none;
+}
+
+#listing_options.search_tabs > a {
+    flex: 0 0 auto;
+}
+
+.media_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.media_tile {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 5px;
+    background: var(--post);
+}
+
+.media_tile img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.media_tile:hover img {
+    filter: brightness(1.1);
+}
+
+.media_tile.post_blurred img {
+    filter: blur(1.5rem);
+}
+
+.media_badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.media_sub {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 14px 8px 6px;
+    font-size: 12px;
+    color: #fff;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+
+.search_results_comments {
+    margin-top: 20px;
+}
+
+/* Keeps the scroll position on the results, not the link, when more are added */
+.search_more {
+    overflow-anchor: none;
+}
+
+.search_results_comments .comment {
+    margin-bottom: 10px;
+}
+
 #search_subreddits {
     border-radius: 5px;
     background: var(--post);
