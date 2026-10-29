@@ -140,6 +140,11 @@ input {
     word-wrap: anywhere;
 }
 
+html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--highlighted) var(--background);
+}
+
 html.fixed_navbar {
     scroll-padding-top: 50px;
 }
@@ -546,6 +551,26 @@ aside {
     }
 }
 
+#sub_actions,
+#user_actions {
+    column-gap: 10px;
+    align-self: stretch;
+}
+
+#sub_actions button,
+#user_actions button {
+    width: 100%;
+}
+
+summary:not(.comment_data):hover {
+    text-decoration: underline;
+}
+
+#instance_info details[open] > summary,
+#feeds[open] > summary {
+    margin-bottom: 10px;
+}
+
 #user_details > label,
 #sub_details > label {
     color: var(--accent);
@@ -593,6 +618,15 @@ aside {
 .unfilter {
     color: var(--text);
     background-color: var(--highlighted);
+}
+
+.subscribe:hover,
+.unsubscribe:hover,
+.filter:hover,
+.unfilter:hover,
+.copy:hover,
+.import:hover {
+    text-decoration: underline;
 }
 
 /* Feeds */
@@ -788,6 +822,59 @@ button.submit:hover > svg {
     border-radius: 0;
 }
 
+button,
+input[type="submit"],
+input[type="checkbox"],
+input[type="radio"],
+summary,
+#inside label {
+    cursor: pointer;
+}
+
+#search_sort select,
+#sort select,
+#sort_submit,
+#inside {
+    transition: 0.2s background;
+}
+
+#search_sort select:hover,
+#search_sort select:focus-visible,
+#sort select:hover,
+#sort select:focus-visible,
+#sort_submit:hover,
+#sort_submit:focus-visible,
+#inside:hover,
+#inside:focus-within {
+    background: var(--foreground);
+    text-decoration: underline;
+    outline: none;
+}
+
+#search_sort:focus-within,
+#sort:has(.commentQuery):focus-within {
+    outline: 2px solid var(--accent);
+}
+
+#search_sort :focus-visible,
+#sort:has(.commentQuery) :focus-visible {
+    outline: none;
+}
+
+#sort:has(.commentQuery) {
+    border-radius: 5px;
+}
+
+#search_sort #inside {
+    max-width: none;
+}
+
+#sort_submit {
+    flex: 0 0 auto;
+    min-width: 45px;
+    justify-content: center;
+}
+
 #sort_options + #timeframe:not(#search_sort #timeframe) {
     border-radius: 5px 0px 0px 5px;
 }
@@ -978,6 +1065,10 @@ main > * > footer > a {
     filter: brightness(1.1);
 }
 
+.media_tile:hover .media_sub {
+    text-decoration: underline;
+}
+
 .media_tile.post_blurred img {
     filter: blur(1.5rem);
 }
@@ -1050,6 +1141,10 @@ main > * > footer > a {
 a.search_subreddit:hover {
     text-decoration: none;
     background: var(--foreground);
+}
+
+a.search_subreddit:hover .search_subreddit_name {
+    text-decoration: underline;
 }
 
 .search_subreddit:not(:last-child) {
@@ -1858,6 +1953,10 @@ summary.comment_data {
 
 aside.prefs {
     margin-top: 20px;
+}
+
+#save:focus {
+    outline: 2px solid var(--accent);
 }
 
 #save {
