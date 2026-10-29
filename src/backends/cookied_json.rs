@@ -41,7 +41,7 @@ static NEXT_SESSION: AtomicUsize = AtomicUsize::new(0);
 async fn fetch(path: &str) -> Result<Value, Failure> {
 	let sessions = session_cookies();
 	let mut response = web_session_get(path, &sessions).await;
-	if response.is_none() && reroll_client() {
+	if response.is_none() && reroll_client("Reddit refused every session") {
 		response = web_session_get(path, &sessions).await;
 	}
 	let response = response.ok_or(Failure::Blocked)?;
