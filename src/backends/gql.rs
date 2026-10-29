@@ -152,7 +152,12 @@ async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, 
 
 	let mut response = Value::Null;
 	for _ in 0..2 {
-		let mut builder = CLIENT.load_full().post(GQL_URL);
+		let mut builder = CLIENT
+			.load_full()
+			.post(GQL_URL)
+			.header("X-APOLLO-OPERATION-NAME", operation)
+			.header("X-APOLLO-OPERATION-ID", hash)
+			.header("Accept", "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json");
 		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
 			// `json()` sets its own; a duplicate Content-Type fails every query
 			if !key.eq_ignore_ascii_case("content-type") {
