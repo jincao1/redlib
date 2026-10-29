@@ -179,6 +179,9 @@ pub struct Config {
 	#[serde(rename = "REDLIB_ENDPOINTS_LISTING")]
 	pub(crate) endpoints_listing: Option<String>,
 
+	#[serde(rename = "REDLIB_ENDPOINTS_ALL")]
+	pub(crate) endpoints_all: Option<String>,
+
 	#[serde(rename = "REDLIB_ENDPOINTS_SUBREDDIT")]
 	pub(crate) endpoints_subreddit: Option<String>,
 
@@ -279,6 +282,7 @@ impl Config {
 			endpoints_post: parse("REDLIB_ENDPOINTS_POST"),
 			endpoints_comments: parse("REDLIB_ENDPOINTS_COMMENTS"),
 			endpoints_listing: parse("REDLIB_ENDPOINTS_LISTING"),
+			endpoints_all: parse("REDLIB_ENDPOINTS_ALL"),
 			endpoints_subreddit: parse("REDLIB_ENDPOINTS_SUBREDDIT"),
 			endpoints_user: parse("REDLIB_ENDPOINTS_USER"),
 			endpoints_search: parse("REDLIB_ENDPOINTS_SEARCH"),
@@ -334,6 +338,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_ENDPOINTS_POST" => config.endpoints_post.clone(),
 		"REDLIB_ENDPOINTS_COMMENTS" => config.endpoints_comments.clone(),
 		"REDLIB_ENDPOINTS_LISTING" => config.endpoints_listing.clone(),
+		"REDLIB_ENDPOINTS_ALL" => config.endpoints_all.clone(),
 		"REDLIB_ENDPOINTS_SUBREDDIT" => config.endpoints_subreddit.clone(),
 		"REDLIB_ENDPOINTS_USER" => config.endpoints_user.clone(),
 		"REDLIB_ENDPOINTS_SEARCH" => config.endpoints_search.clone(),

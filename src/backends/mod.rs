@@ -81,8 +81,10 @@ pub enum Kind {
 	Post,
 	/// A post page with its comments, "more comments" and comment permalinks.
 	Comments,
-	/// Posts of a subreddit, popular, all and the front page.
+	/// Posts of a subreddit, popular and the front page.
 	Listing,
+	/// r/all, which Reddit only still serves through the app's old GraphQL feed.
+	All,
 	/// Subreddit info (`/r/<sub>/about`).
 	Subreddit,
 	/// A user's profile, overview, posts and comments.
@@ -94,10 +96,11 @@ pub enum Kind {
 }
 
 impl Kind {
-	pub const ALL: [Self; 8] = [
+	pub const ALL: [Self; 9] = [
 		Self::Post,
 		Self::Comments,
 		Self::Listing,
+		Self::All,
 		Self::Subreddit,
 		Self::User,
 		Self::Search,
@@ -116,6 +119,8 @@ impl Kind {
 			Self::User => "gql, cookied-json, obscura-cookied-json",
 			Self::Comments => "gql, cookied-json, obscura-cookied-json, scraped, json",
 			Self::Listing => "json, gql, cookied-json, obscura-cookied-json",
+			// JSON answers 403 with and without a session
+			Self::All => "gql",
 			Self::Wiki | Self::Duplicates => "json, cookied-json, obscura-cookied-json",
 		}
 	}
@@ -125,6 +130,7 @@ impl Kind {
 			Self::Post => "post",
 			Self::Comments => "comments",
 			Self::Listing => "listing",
+			Self::All => "all",
 			Self::Subreddit => "subreddit",
 			Self::User => "user",
 			Self::Search => "search",
@@ -144,6 +150,7 @@ impl Kind {
 			["search", ..] | ["subreddits" | "users", "search", ..] | ["r", _, "search", ..] => Self::Search,
 			["r", _, "wiki", ..] | ["wiki", ..] => Self::Wiki,
 			["r", _, "about", ..] => Self::Subreddit,
+			["r", "all", ..] => Self::All,
 			_ => Self::Listing,
 		}
 	}
@@ -449,6 +456,7 @@ mod tests {
 		assert_eq!(names(&order(Kind::Comments)), in_build(&["gql", "cookied-json", "obscura-cookied-json", "scraped", "json"]));
 		assert_eq!(names(&order(Kind::Listing)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
 		assert_eq!(names(&order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::All)), ["gql"]);
 	}
 
 	#[test]
@@ -491,6 +499,8 @@ mod tests {
 			("/r/rust.json", Kind::Listing),
 			("/r/rust+linux/new.json", Kind::Listing),
 			("/.json?raw_json=1", Kind::Listing),
+			("/r/all/new.json?raw_json=1", Kind::All),
+			("/r/all/search.json?q=rust", Kind::Search),
 			("/r/rust/about.json?raw_json=1", Kind::Subreddit),
 			("/search.json?q=rust", Kind::Search),
 			("/r/rust/search.json?q=async&restrict_sr=on", Kind::Search),
