@@ -229,7 +229,7 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 
 	let node = &tree["node"];
 	let fullname = node["id"].as_str().unwrap_or_default();
-	let author = node["authorInfo"]["name"].as_str().unwrap_or("[unknown]");
+	let author = author_name(&node["authorInfo"]).unwrap_or("[unknown]");
 	let content = &node["content"];
 
 	// The JSON API's representation of deleted and removed comments, which post.rs looks for
@@ -386,6 +386,11 @@ async fn all(path: &str, sort: &str) -> Result<Value, String> {
 	Ok(posts)
 }
 
+/// Some feeds, like popular, only send `displayName`.
+fn author_name(info: &Value) -> Option<&str> {
+	info["name"].as_str().or_else(|| info["displayName"].as_str())
+}
+
 /// Converts a GraphQL post into a post of the JSON API.
 fn post(node: &Value) -> Option<Value> {
 	let node = if node["postInfo"].is_object() { &node["postInfo"] } else { node };
@@ -405,7 +410,7 @@ fn post(node: &Value) -> Option<Value> {
 		"id": fullname.strip_prefix("t3_").unwrap_or(fullname),
 		"name": fullname,
 		"title": title,
-		"author": node["authorInfo"]["name"].as_str().unwrap_or("[deleted]"),
+		"author": author_name(&node["authorInfo"]).unwrap_or("[deleted]"),
 		"author_flair_type": author_flair_type,
 		"author_flair_richtext": author_flair_richtext,
 		"author_flair_text": node["authorFlair"]["text"],
@@ -1008,6 +1013,13 @@ mod tests {
 				"kept",
 			)
 		);
+	}
+
+	#[test]
+	fn test_author_name() {
+		assert_eq!(author_name(&json_value!({ "name": "a", "displayName": "b" })), Some("a"));
+		assert_eq!(author_name(&json_value!({ "displayName": "b" })), Some("b"));
+		assert_eq!(author_name(&Value::Null), None);
 	}
 
 	#[test]
