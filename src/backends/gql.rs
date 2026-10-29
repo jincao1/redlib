@@ -140,7 +140,25 @@ fn comment_tree(response: &Value, post_id: &str) -> Result<Vec<Value>, String> {
 	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
 		.as_array()
 		.ok_or_else(|| format!("No comments in response: {}", response["errors"]))?;
-	Ok(nest(trees.iter().filter_map(|tree| item(tree, post_id)).collect()))
+	Ok(nest(items(trees, post_id)))
+}
+
+fn items(trees: &[Value], post_id: &str) -> Vec<(u64, Value)> {
+	trees
+		.iter()
+		.enumerate()
+		.filter_map(|(i, tree)| {
+			if tree["node"]["__typename"] != "DeletedComment" {
+				return item(tree, post_id);
+			}
+			// Deleted comments have no ID, but their first reply names them as its parent
+			let mut tree = tree.clone();
+			if let Some(reply) = trees.get(i + 1).filter(|next| next["depth"].as_u64() == tree["depth"].as_u64().map(|depth| depth + 1)) {
+				tree["node"]["id"] = reply["parentId"].clone();
+			}
+			item(&tree, post_id)
+		})
+		.collect()
 }
 
 /// Of 600 per token; JSON refreshes at 10 of 100.
@@ -1004,7 +1022,7 @@ mod tests {
 			comment("t1_d", 0, None),
 			json_value!({ "depth": 0, "parentId": null, "more": { "count": 90, "cursor": "c2" } }),
 		];
-		let comments = nest(trees.iter().filter_map(|t| item(t, "p")).collect());
+		let comments = nest(items(&trees, "p"));
 		assert_eq!(comments.len(), 3);
 
 		let a = &comments[0]["data"];
@@ -1012,6 +1030,7 @@ mod tests {
 		let replies = a["replies"]["data"]["children"].as_array().unwrap();
 		assert_eq!(replies.len(), 2);
 		assert_eq!(replies[0]["data"]["author"], "[deleted]");
+		assert_eq!(replies[0]["data"]["id"], "x");
 		assert_eq!(replies[0]["data"]["replies"]["data"]["children"][0]["data"]["id"], "c");
 		assert_eq!(replies[1]["kind"], "more");
 		assert_eq!(replies[1]["data"]["parent_id"], "t1_a");
