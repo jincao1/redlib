@@ -110,7 +110,7 @@ While running, Redlib reorders the listed backends by how often each worked in t
 | `COMMENTS`   | ⚠️ blocked | ✅             | ✅    | ✅        | ✅                     | gql, cookied-json, obscura-cookied-json, scraped, json |
 | `LISTING`    | ✅         | ✅             | ⚠️¹   | ❌        | ✅                     | json, gql, cookied-json, obscura-cookied-json |
 | `SUBREDDIT`  | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
-| `USER`       | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
+| `USER`       | ⚠️ blocked | ✅             | ✅    | ❌        | ✅                     | gql, cookied-json, obscura-cookied-json |
 | `SEARCH`     | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `WIKI`       | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |
 | `DUPLICATES` | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |

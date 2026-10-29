@@ -111,7 +111,9 @@ impl Kind {
 	/// always blocked for comments, so it goes last there.
 	fn default_order(self) -> &'static str {
 		match self {
-			Self::Post | Self::Subreddit | Self::User | Self::Search => "gql, json, cookied-json, obscura-cookied-json",
+			Self::Post | Self::Subreddit | Self::Search => "gql, json, cookied-json, obscura-cookied-json",
+			// Reddit answers anonymous user JSON with 403 whatever the client
+			Self::User => "gql, cookied-json, obscura-cookied-json",
 			Self::Comments => "gql, cookied-json, obscura-cookied-json, scraped, json",
 			Self::Listing => "json, gql, cookied-json, obscura-cookied-json",
 			Self::Wiki | Self::Duplicates => "json, cookied-json, obscura-cookied-json",
@@ -466,7 +468,7 @@ mod tests {
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS_USER", "nonsense")])]
 	fn test_unusable_order_falls_back_to_the_default() {
-		assert_eq!(names(&order(Kind::User)), in_build(&["gql", "json", "cookied-json", "obscura-cookied-json"]));
+		assert_eq!(names(&order(Kind::User)), in_build(&["gql", "cookied-json", "obscura-cookied-json"]));
 	}
 
 	#[test]
