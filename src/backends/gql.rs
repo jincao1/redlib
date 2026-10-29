@@ -504,7 +504,7 @@ fn subreddit(node: &Value) -> Option<Value> {
 		"title": node["title"],
 		"public_description": node["publicDescriptionText"],
 		"description": description["markdown"],
-		"description_html": format!("<div class=\"md\">{}</div>", render(&richtext["document"], &Value::Null)),
+		"description_html": Some(render(&richtext["document"], &Value::Null)).filter(|html| !html.is_empty()).map(|html| format!("<div class=\"md\">{html}</div>")),
 		"community_icon": node["styles"]["icon"],
 		"icon_img": node["styles"]["legacyIcon"]["url"],
 		"subscribers": node["subscribersCount"],
@@ -1111,6 +1111,15 @@ mod tests {
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
+	}
+
+	#[test]
+	fn test_subreddit_without_sidebar() {
+		let empty = subreddit(&json_value!({ "name": "x", "description": { "richtext": "{\"document\":[]}" } })).unwrap();
+		assert!(empty["data"]["description_html"].is_null());
+		let doc = r#"{"document":[{"e":"par","c":[{"e":"text","t":"hi"}]}]}"#;
+		let full = subreddit(&json_value!({ "name": "x", "description": { "richtext": doc } })).unwrap();
+		assert_eq!(full["data"]["description_html"], "<div class=\"md\"><p>hi</p></div>");
 	}
 
 	#[tokio::test]

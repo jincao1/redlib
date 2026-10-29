@@ -139,10 +139,11 @@
                                 {% endif %}
                             </div>
                         </details>
-                        <details class="panel" id="sidebar">
-                            <summary id="sidebar_label">Sidebar</summary>
-                            <div id="sidebar_contents">
-                                {{ sub.info|safe }}
+                        {% if !sub.info.is_empty() %}
+                            <details class="panel" id="sidebar">
+                                <summary id="sidebar_label">Sidebar</summary>
+                                <div id="sidebar_contents">
+                                    {{ sub.info|safe }}
 					{# <hr>
 					<h2>Moderators</h2>
 					<br>
@@ -151,8 +152,9 @@
 					<li><a style="color: var(--accent)" href="/u/{{ moderator }}">{{ moderator }}</a></li>
 					{% endfor %}
 					</ul> #}
-                            </div>
-                        </details>
+                                </div>
+                            </details>
+                        {% endif %}
                 {% endif %}
             </aside>
         {% endif %}
