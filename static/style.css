@@ -1143,6 +1143,10 @@ a.search_subreddit:hover {
     background: var(--foreground);
 }
 
+a.search_subreddit:hover .search_subreddit_name {
+    text-decoration: underline;
+}
+
 .search_subreddit:not(:last-child) {
     border-bottom: 1px solid var(--highlighted);
 }
