@@ -228,11 +228,11 @@ impl MobileSpoofAuth {
 	}
 }
 
-impl OauthBackend for MobileSpoofAuth {
-	async fn authenticate(&mut self) -> Result<OauthResponse, AuthError> {
+impl MobileSpoofAuth {
+	async fn authenticate_with(&mut self, client: &wreq::Client) -> Result<OauthResponse, AuthError> {
 		// Construct URL for OAuth token
 		let url = format!("{AUTH_ENDPOINT}/auth/v2/oauth/access-token/loid");
-		let mut builder = CLIENT.load_full().post(&url);
+		let mut builder = client.post(&url);
 
 		// Add headers from spoofed client
 		for (key, value) in &self.device.initial_headers {
@@ -301,6 +301,22 @@ impl OauthBackend for MobileSpoofAuth {
 			expires_in,
 			additional_headers: self.additional_headers.clone(),
 		})
+	}
+}
+
+/// Headers of a fresh anonymous token minted with `client`.
+#[cfg(test)]
+pub(crate) async fn android_headers(client: &wreq::Client) -> Result<HashMap<String, String>, String> {
+	let mut backend = MobileSpoofAuth::new();
+	let response = backend.authenticate_with(client).await.map_err(|e| format!("{e:?}"))?;
+	let mut headers = backend.get_headers();
+	headers.insert("Authorization".to_owned(), format!("Bearer {}", response.token));
+	Ok(headers)
+}
+
+impl OauthBackend for MobileSpoofAuth {
+	async fn authenticate(&mut self) -> Result<OauthResponse, AuthError> {
+		self.authenticate_with(&CLIENT.load_full()).await
 	}
 
 	fn user_agent(&self) -> &str {

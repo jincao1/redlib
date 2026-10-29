@@ -146,8 +146,7 @@ const EMULATIONS: &[(Profile, &[Platform], u32)] = {
 	]
 };
 
-/// The tests only pick from fingerprints Reddit served in the probe, so the
-/// live tests don't depend on the draw.
+/// Known-good fingerprints for the tests, checked by `test_probe_fingerprints`.
 const TEST_EMULATIONS: &[(Profile, &[Platform], u32)] = {
 	use Platform::*;
 	use Profile::*;
@@ -847,6 +846,106 @@ mod tests {
 				"{profile} on {platform} isn't SERVED in EMULATIONS"
 			);
 		}
+	}
+
+	/// What Reddit answers one fingerprint: token, listing and GraphQL query.
+	async fn probe(profile: Profile, platform: Platform) -> (String, String, String) {
+		let pause = || tokio::time::sleep(std::time::Duration::from_millis(300));
+		let client = client_for(profile, platform);
+		let headers = match crate::oauth::android_headers(&client).await {
+			Ok(headers) => headers,
+			Err(e) => return (format!("failed: {}", e.chars().take(60).collect::<String>()), "-".into(), "-".into()),
+		};
+		pause().await;
+
+		let mut builder = client.get(format!("{REDDIT_URL_BASE}/r/rust/hot.json?raw_json=1&limit=1"));
+		for (key, value) in &headers {
+			builder = builder.header(key, value);
+		}
+		let json = match builder.send().await {
+			Ok(res) => {
+				let status = res.status().as_u16();
+				let content_type = res.headers().get(wreq_header::CONTENT_TYPE).map(|v| v.as_bytes().to_vec());
+				let body = res.bytes().await.unwrap_or_default();
+				if is_fingerprint_block(status, content_type.as_deref(), &body) {
+					"blocked".to_string()
+				} else if serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|v| v["kind"] == "Listing") {
+					"ok".to_string()
+				} else {
+					format!("{status}")
+				}
+			}
+			Err(e) => format!("failed: {e}"),
+		};
+		pause().await;
+
+		let body = serde_json::json!({
+			"operationName": "SubredditInfoByName",
+			"variables": { "subredditName": "rust", "filterGated": true, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false },
+			"extensions": { "persistedQuery": { "version": 1, "sha256Hash": crate::backends::gql::SUBREDDIT_INFO_HASH } },
+		});
+		let mut builder = client
+			.post(crate::backends::gql::GQL_URL)
+			.header("X-APOLLO-OPERATION-NAME", "SubredditInfoByName")
+			.header("X-APOLLO-OPERATION-ID", crate::backends::gql::SUBREDDIT_INFO_HASH);
+		for (key, value) in headers.iter().filter(|(key, _)| !key.eq_ignore_ascii_case("content-type")) {
+			builder = builder.header(key, value);
+		}
+		let gql = match builder.json(&body).send().await {
+			Ok(res) => {
+				let status = res.status().as_u16();
+				match res.json::<serde_json::Value>().await {
+					Ok(v) if !v["data"]["subredditInfoByName"].is_null() => "ok".to_string(),
+					_ => format!("{status}"),
+				}
+			}
+			Err(e) => format!("failed: {e}"),
+		};
+		pause().await;
+		("ok".into(), json, gql)
+	}
+
+	/// Fails when a fingerprint the tests use is blocked.
+	#[test]
+	#[ignore = "live: probes every fingerprint, run with --ignored"]
+	fn test_probe_fingerprints() {
+		use std::fmt::Write;
+		let tested: Vec<(String, String)> = flatten(TEST_EMULATIONS).iter().map(|f| (format!("{:?}", f.profile), format!("{:?}", f.platform))).collect();
+		let mut table = String::from("| profile | platform | weight | token | json | gql | tests |\n|---|---|---|---|---|---|---|\n");
+		let mut broken = Vec::new();
+		let mut surprises = Vec::new();
+		block_on_shared(async {
+			for fingerprint in flatten(EMULATIONS) {
+				let (profile, platform) = (format!("{:?}", fingerprint.profile), format!("{:?}", fingerprint.platform));
+				let (token, json, gql) = probe(fingerprint.profile, fingerprint.platform).await;
+				let weight = if fingerprint.weight == SERVED { "served" } else { "refused" };
+				let in_tests = tested.contains(&(profile.clone(), platform.clone()));
+				let row = format!("| {profile} | {platform} | {weight} | {token} | {json} | {gql} | {} |", if in_tests { "yes" } else { "" });
+				println!("{row}");
+				writeln!(table, "{row}").unwrap();
+				if in_tests && json != "ok" {
+					broken.push(format!("{profile} on {platform}"));
+				}
+				// a failed token or request says nothing about the weight
+				if (json == "ok" || json == "blocked") && (fingerprint.weight == SERVED) != (json == "ok") {
+					surprises.push(format!("{profile} on {platform} ({weight}, json {json})"));
+				}
+			}
+		});
+		let mut summary = format!("## Fingerprints\n\n{table}\n");
+		if !surprises.is_empty() {
+			writeln!(summary, "Weight doesn't match the answer: {}\n", surprises.join(", ")).unwrap();
+		}
+		if !broken.is_empty() {
+			writeln!(summary, "**Used by the tests but not served:** {}\n", broken.join(", ")).unwrap();
+		}
+		println!("{summary}");
+		if let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") {
+			use std::io::Write as _;
+			let mut file = std::fs::OpenOptions::new().append(true).create(true).open(path).unwrap();
+			file.write_all(summary.as_bytes()).unwrap();
+		}
+		assert!(broken.is_empty(), "the tests use fingerprints Reddit blocks: {}", broken.join(", "));
 	}
 
 	// Its own process: the check expects the rate limit counter to start fresh,
