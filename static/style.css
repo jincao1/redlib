@@ -813,6 +813,12 @@ button.submit:hover > svg {
     max-width: none;
 }
 
+#sort_submit {
+    flex: 0 0 auto;
+    min-width: 45px;
+    justify-content: center;
+}
+
 #sort_options + #timeframe:not(#search_sort #timeframe) {
     border-radius: 5px 0px 0px 5px;
 }
