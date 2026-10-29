@@ -1040,6 +1040,10 @@ main > * > footer > a {
     filter: brightness(1.1);
 }
 
+.media_tile:hover .media_sub {
+    text-decoration: underline;
+}
+
 .media_tile.post_blurred img {
     filter: blur(1.5rem);
 }
