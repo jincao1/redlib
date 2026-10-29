@@ -13,7 +13,7 @@ use chrono::DateTime;
 use log::debug;
 use serde_json::{json as json_value, Value};
 
-const GQL_URL: &str = "https://gql-fed.reddit.com/";
+pub(crate) const GQL_URL: &str = "https://gql-fed.reddit.com/";
 
 // Persisted query ID from the Android app; Reddit rejects raw query text.
 // Source: github.com/Amqx/reddit-gql `src/operations.ts`, or the APK's Apollo classes.
@@ -459,7 +459,7 @@ fn post(node: &Value) -> Option<Value> {
 	Some(json_value!({ "kind": "t3", "data": data }))
 }
 
-const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
+pub(crate) const SUBREDDIT_INFO_HASH: &str = "6b9c1679e69097e1c6df364adc11183afe6e2b6545dd1c0c1cc8f7490448c3e5";
 
 /// Why Reddit won't show a subreddit, as the JSON API's `reason` names it.
 const UNAVAILABLE_REASONS: [&str; 4] = ["private", "banned", "quarantined", "gated"];

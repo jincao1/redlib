@@ -73,31 +73,130 @@ const URL_PAIRS: [(&str, &str); 2] = [
 	(REDDIT_SHORT_URL_BASE, REDDIT_SHORT_URL_BASE_HOST),
 ];
 
-/// Browser emulations the client picks from, each with the platforms that
-/// browser ships on. Opera on Linux/Android is left out because wreq-util
-/// sends a macOS user agent for it there.
-const EMULATIONS: &[(Profile, &[Platform])] = {
+/// Draw weights. `REFUSED` is low but not 0, so a fingerprint Reddit
+/// unblocks gets picked up again.
+const SERVED: u32 = 20;
+const REFUSED: u32 = 1;
+
+/// How long a fingerprint Reddit blocked at runtime is left out of the draw.
+const BLOCK_SECS: u64 = 6 * 60 * 60;
+
+/// Reddit blocks anonymous JSON for Chrome 132+, Edge 135+ and Firefox 135+
+/// (probe, October 2026). No OkHttp: Reddit blocks most of it outright.
+const EMULATIONS: &[(Profile, &[Platform], u32)] = {
 	use Platform::*;
 	use Profile::*;
 	&[
-		(Chrome149, &[Windows, MacOS, Linux, Android]),
-		(Chrome148, &[Windows, MacOS, Linux, Android]),
-		(Chrome147, &[Windows, MacOS, Linux, Android]),
-		(Edge148, &[Windows, MacOS]),
-		(Edge147, &[Windows, MacOS]),
-		(Firefox151, &[Windows, MacOS, Linux, Android]),
-		(Firefox150, &[Windows, MacOS, Linux, Android]),
-		(Firefox149, &[Windows, MacOS, Linux]),
-		(Safari26_4, &[MacOS]),
-		(Safari26_3, &[MacOS]),
-		(SafariIos26_2, &[IOS]),
-		(SafariIpad26_2, &[IOS]),
-		(Opera131, &[Windows, MacOS]),
-		(Opera130, &[Windows, MacOS]),
+		(Chrome149, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Chrome148, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Chrome147, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Chrome146, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Chrome145, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Chrome131, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome130, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome129, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome128, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome127, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome126, &[Windows, MacOS, Linux, Android], SERVED),
+		(Chrome124, &[Windows, MacOS, Linux, Android], SERVED),
+		(Edge148, &[Windows, MacOS], REFUSED),
+		(Edge147, &[Windows, MacOS], REFUSED),
+		(Edge146, &[Windows, MacOS], REFUSED),
+		(Edge145, &[Windows, MacOS], REFUSED),
+		(Edge134, &[Windows, MacOS], SERVED),
+		(Edge131, &[Windows, MacOS], SERVED),
+		(Edge127, &[Windows, MacOS], SERVED),
+		(Edge122, &[Windows, MacOS], SERVED),
+		(Firefox151, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Firefox150, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Firefox149, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Firefox148, &[Windows, MacOS, Linux, Android], REFUSED),
+		(Firefox147, &[Windows, MacOS, Linux, Android], REFUSED),
+		// wreq-util has no macOS user agent for these two
+		(Firefox133, &[Windows, Linux, Android], SERVED),
+		(Firefox128, &[Windows, Linux], SERVED),
+		(FirefoxAndroid135, &[Android], SERVED),
+		(Safari26_4, &[MacOS], SERVED),
+		(Safari26_3, &[MacOS], SERVED),
+		(Safari26_2, &[MacOS], SERVED),
+		(Safari26_1, &[MacOS], SERVED),
+		(Safari26, &[MacOS], SERVED),
+		(Safari18_5, &[MacOS], SERVED),
+		(Safari18_3_1, &[MacOS], SERVED),
+		(Safari18_3, &[MacOS], SERVED),
+		(Safari18_2, &[MacOS], SERVED),
+		(Safari18, &[MacOS], SERVED),
+		(Safari17_6, &[MacOS], SERVED),
+		(Safari17_5, &[MacOS], SERVED),
+		(SafariIos26_2, &[IOS], SERVED),
+		(SafariIos26, &[IOS], SERVED),
+		(SafariIos18_1_1, &[IOS], SERVED),
+		(SafariIos17_4_1, &[IOS], SERVED),
+		(SafariIpad26_2, &[IOS], SERVED),
+		(SafariIPad26, &[IOS], SERVED),
+		(SafariIPad18, &[IOS], SERVED),
+		(Opera131, &[Windows, MacOS], SERVED),
+		(Opera130, &[Windows, MacOS], SERVED),
+		(Opera129, &[Windows, MacOS], SERVED),
+		(Opera128, &[Windows, MacOS], SERVED),
+		(Opera127, &[Windows, MacOS], SERVED),
+		(Opera126, &[Windows, MacOS], SERVED),
+		(Opera125, &[Windows, MacOS], SERVED),
+		(Opera124, &[Windows, MacOS], SERVED),
 	]
 };
 
-/// Index into the flattened `EMULATIONS` pairs of the emulation in use.
+/// Known-good fingerprints for the tests, checked by `test_probe_fingerprints`.
+const TEST_EMULATIONS: &[(Profile, &[Platform], u32)] = {
+	use Platform::*;
+	use Profile::*;
+	&[
+		(Chrome131, &[Windows, Android], SERVED),
+		(Edge134, &[Windows], SERVED),
+		(Firefox133, &[Linux], SERVED),
+		(Safari26_4, &[MacOS], SERVED),
+		(Safari18_5, &[MacOS], SERVED),
+		(SafariIos26_2, &[IOS], SERVED),
+		(Opera131, &[Windows, MacOS], SERVED),
+	]
+};
+
+/// One browser emulation the client can use.
+struct Fingerprint {
+	profile: Profile,
+	platform: Platform,
+	weight: u32,
+	/// Unix time until which Reddit is taken to block it, 0 if it doesn't.
+	blocked_until: AtomicU64,
+}
+
+impl Fingerprint {
+	fn weight(&self, now: u64) -> u32 {
+		if self.blocked_until.load(Ordering::Relaxed) > now {
+			0
+		} else {
+			self.weight
+		}
+	}
+}
+
+fn flatten(table: &[(Profile, &[Platform], u32)]) -> Vec<Fingerprint> {
+	table
+		.iter()
+		.flat_map(|&(profile, platforms, weight)| {
+			platforms.iter().map(move |&platform| Fingerprint {
+				profile,
+				platform,
+				weight,
+				blocked_until: AtomicU64::new(0),
+			})
+		})
+		.collect()
+}
+
+static FINGERPRINTS: LazyLock<Vec<Fingerprint>> = LazyLock::new(|| flatten(if cfg!(test) { TEST_EMULATIONS } else { EMULATIONS }));
+
+/// Index into `FINGERPRINTS` of the emulation in use.
 static EMULATION: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 /// Unix time of the last emulation switch, so a burst of blocked requests
@@ -105,35 +204,77 @@ static EMULATION: AtomicUsize = AtomicUsize::new(usize::MAX);
 static LAST_REROLL: AtomicU64 = AtomicU64::new(0);
 const REROLL_COOLDOWN_SECS: u64 = 60;
 
-fn emulation_pairs() -> impl Iterator<Item = (Profile, Platform)> {
-	EMULATIONS
-		.iter()
-		// Reddit answers anonymous oauth.reddit.com JSON with 403 for current
-		// Chrome, Edge and Firefox fingerprints, so the live tests stay on the
-		// ones it serves instead of depending on the draw
-		.filter(|(profile, _)| !cfg!(test) || ["Safari", "Opera"].iter().any(|b| format!("{profile:?}").starts_with(b)))
-		.flat_map(|(profile, platforms)| platforms.iter().map(move |platform| (*profile, *platform)))
+fn now_secs() -> u64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// Builds a client with a random browser emulation other than the current one.
-pub fn build_client() -> WreqClient {
-	let count = emulation_pairs().count();
-	let current = EMULATION.load(Ordering::Relaxed);
-	let mut index = fastrand::usize(..count);
-	if index == current {
-		index = (index + 1 + fastrand::usize(..count - 1)) % count;
+/// A weighted random index other than `current`.
+fn pick(weights: &[u32], current: usize) -> usize {
+	let others = || weights.iter().enumerate().filter(|&(i, _)| i != current);
+	let total: u32 = others().map(|(_, w)| w).sum();
+	if total == 0 {
+		let count = others().count();
+		return others().nth(fastrand::usize(..count)).map_or(0, |(i, _)| i);
 	}
-	EMULATION.store(index, Ordering::Relaxed);
-	let (profile, platform) = emulation_pairs().nth(index).expect("index is within the emulation pairs");
-	let emulation = Emulation::builder().profile(profile).platform(platform).build();
+	let mut draw = fastrand::u32(..total);
+	for (i, &weight) in others() {
+		if draw < weight {
+			return i;
+		}
+		draw -= weight;
+	}
+	unreachable!("the draw is below the total weight")
+}
 
-	info!("Building Wreq client with random emulation {profile:?} on {platform:?}");
+fn client_for(profile: Profile, platform: Platform) -> WreqClient {
 	WreqClient::builder()
-		.emulation(emulation)
+		.emulation(Emulation::builder().profile(profile).platform(platform).build())
 		.redirect(Policy::none())
 		.dns_resolver(RedgifsIpv4Resolver(GaiResolver::new()))
 		.build()
 		.expect("Should always be able to build a client")
+}
+
+/// Builds a client with another, weighted random browser emulation.
+pub fn build_client() -> WreqClient {
+	let now = now_secs();
+	let weights: Vec<u32> = FINGERPRINTS.iter().map(|f| f.weight(now)).collect();
+	let index = pick(&weights, EMULATION.load(Ordering::Relaxed));
+	EMULATION.store(index, Ordering::Relaxed);
+	let Fingerprint { profile, platform, .. } = FINGERPRINTS[index];
+	info!("Building Wreq client with random emulation {profile:?} on {platform:?}");
+	client_for(profile, platform)
+}
+
+/// The emulation `CLIENT` uses, for `fingerprint_blocked`.
+pub(crate) fn current_emulation() -> usize {
+	EMULATION.load(Ordering::Relaxed)
+}
+
+/// Reddit's fingerprint block page. Private or banned subs answer JSON 403s.
+pub(crate) fn is_fingerprint_block(status: u16, content_type: Option<&[u8]>, body: &[u8]) -> bool {
+	status == 403 && content_type.is_some_and(|v| v.starts_with(b"text/html")) && String::from_utf8_lossy(body).to_lowercase().contains("blocked by network security")
+}
+
+/// Leaves emulation `index` out for `BLOCK_SECS` and switches away from it,
+/// unless `CLIENT` already switched since the request went out.
+pub(crate) fn fingerprint_blocked(index: usize) {
+	let Some(fingerprint) = FINGERPRINTS.get(index) else {
+		return;
+	};
+	if current_emulation() != index {
+		return;
+	}
+	let now = now_secs();
+	if fingerprint.blocked_until.swap(now + BLOCK_SECS, Ordering::Relaxed) <= now {
+		info!(
+			"Reddit blocks anonymous JSON for {:?} on {:?}, leaving it out for {} hours",
+			fingerprint.profile,
+			fingerprint.platform,
+			BLOCK_SECS / 3600
+		);
+	}
+	reroll_client("Reddit blocked the browser emulation");
 }
 
 /// Set at startup when Redlib runs IPv6-only.
@@ -168,14 +309,14 @@ fn prefer_ipv4(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
 }
 
 /// Switches `CLIENT` to another browser emulation, at most once per
-/// `REROLL_COOLDOWN_SECS`. Returns whether it switched.
-pub(crate) fn reroll_client() -> bool {
-	let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+/// `REROLL_COOLDOWN_SECS`, and logs `reason`. Returns whether it switched.
+pub(crate) fn reroll_client(reason: &str) -> bool {
+	let now = now_secs();
 	let last = LAST_REROLL.load(Ordering::Relaxed);
 	if now.saturating_sub(last) < REROLL_COOLDOWN_SECS || LAST_REROLL.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_err() {
 		return false;
 	}
-	warn!("Reddit refused every session, switching the browser emulation");
+	warn!("{reason}, switching the browser emulation");
 	CLIENT.store(Arc::new(build_client()));
 	crate::redgifs::clear_token();
 	true
@@ -620,10 +761,191 @@ mod tests {
 	#[test]
 	#[sealed_test]
 	fn test_reroll_waits_for_the_cooldown() {
-		assert!(reroll_client());
-		assert!(!reroll_client());
+		assert!(reroll_client("test"));
+		assert!(!reroll_client("test"));
 		LAST_REROLL.store(LAST_REROLL.load(Ordering::Relaxed) - REROLL_COOLDOWN_SECS, Ordering::Relaxed);
-		assert!(reroll_client());
+		assert!(reroll_client("test"));
+	}
+
+	#[test]
+	fn test_pick_skips_the_current_and_zero_weights() {
+		for _ in 0..200 {
+			assert_eq!(pick(&[0, 5, 0, 5], 1), 3);
+			assert_ne!(pick(&[5, 5, 5], 0), 0);
+		}
+	}
+
+	#[test]
+	fn test_pick_falls_back_to_any_other_when_all_are_blocked() {
+		for _ in 0..200 {
+			assert_ne!(pick(&[0, 0, 0], 2), 2);
+		}
+	}
+
+	#[test]
+	fn test_pick_follows_the_weights() {
+		let picks = (0..10_000).filter(|_| pick(&[SERVED, REFUSED, 0], 2) == 1).count();
+		assert!((300..700).contains(&picks), "{picks}");
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_blocked_fingerprint_is_not_picked_until_it_expires() {
+		build_client();
+		let blocked = current_emulation();
+		fingerprint_blocked(blocked);
+		assert_ne!(current_emulation(), blocked, "switched away from it");
+		let now = now_secs();
+		assert_eq!(FINGERPRINTS[blocked].weight(now), 0);
+		for _ in 0..200 {
+			build_client();
+			assert_ne!(current_emulation(), blocked);
+		}
+
+		assert_eq!(FINGERPRINTS[blocked].weight(now + BLOCK_SECS + 1), SERVED);
+		FINGERPRINTS[blocked].blocked_until.store(now - 1, Ordering::Relaxed);
+		assert!((0..1000).any(|_| {
+			build_client();
+			current_emulation() == blocked
+		}));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_block_of_a_previous_emulation_is_ignored() {
+		build_client();
+		let previous = current_emulation();
+		build_client();
+		fingerprint_blocked(previous);
+		assert_eq!(FINGERPRINTS[previous].weight(now_secs()), SERVED);
+	}
+
+	#[test]
+	fn test_fingerprint_block_page_is_told_from_json_403s() {
+		let html = Some(&b"text/html; charset=utf-8"[..]);
+		let page = b"<!DOCTYPE html><html><body>You've been blocked by network security.</body></html>";
+		assert!(is_fingerprint_block(403, html, page));
+		// a private subreddit
+		let private = br#"{"reason": "private", "message": "Forbidden", "error": 403}"#;
+		assert!(!is_fingerprint_block(403, Some(b"application/json; charset=UTF-8"), private));
+		assert!(!is_fingerprint_block(403, html, b"<html>Forbidden</html>"));
+		assert!(!is_fingerprint_block(200, html, page));
+	}
+
+	#[test]
+	fn test_emulation_tables() {
+		let pairs = |table| flatten(table).into_iter().map(|f| (format!("{:?}", f.profile), format!("{:?}", f.platform), f.weight));
+		let all: Vec<_> = pairs(EMULATIONS).collect();
+		assert!(all.iter().all(|(profile, ..)| !profile.starts_with("OkHttp")));
+		let unique: std::collections::HashSet<_> = all.iter().map(|(profile, platform, _)| (profile, platform)).collect();
+		assert_eq!(unique.len(), all.len(), "duplicate pairs");
+		for (profile, platform, weight) in pairs(TEST_EMULATIONS) {
+			assert_eq!(weight, SERVED);
+			assert!(
+				all.contains(&(profile.clone(), platform.clone(), SERVED)),
+				"{profile} on {platform} isn't SERVED in EMULATIONS"
+			);
+		}
+	}
+
+	/// What Reddit answers one fingerprint: token, listing and GraphQL query.
+	async fn probe(profile: Profile, platform: Platform) -> (String, String, String) {
+		let pause = || tokio::time::sleep(std::time::Duration::from_millis(300));
+		let client = client_for(profile, platform);
+		let headers = match crate::oauth::android_headers(&client).await {
+			Ok(headers) => headers,
+			Err(e) => return (format!("failed: {}", e.chars().take(60).collect::<String>()), "-".into(), "-".into()),
+		};
+		pause().await;
+
+		let mut builder = client.get(format!("{REDDIT_URL_BASE}/r/rust/hot.json?raw_json=1&limit=1"));
+		for (key, value) in &headers {
+			builder = builder.header(key, value);
+		}
+		let json = match builder.send().await {
+			Ok(res) => {
+				let status = res.status().as_u16();
+				let content_type = res.headers().get(wreq_header::CONTENT_TYPE).map(|v| v.as_bytes().to_vec());
+				let body = res.bytes().await.unwrap_or_default();
+				if is_fingerprint_block(status, content_type.as_deref(), &body) {
+					"blocked".to_string()
+				} else if serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|v| v["kind"] == "Listing") {
+					"ok".to_string()
+				} else {
+					format!("{status}")
+				}
+			}
+			Err(e) => format!("failed: {e}"),
+		};
+		pause().await;
+
+		let body = serde_json::json!({
+			"operationName": "SubredditInfoByName",
+			"variables": { "subredditName": "rust", "filterGated": true, "includeDevvitData": false, "includeRecapFields": false, "includeWelcomePage": false },
+			"extensions": { "persistedQuery": { "version": 1, "sha256Hash": crate::backends::gql::SUBREDDIT_INFO_HASH } },
+		});
+		let mut builder = client
+			.post(crate::backends::gql::GQL_URL)
+			.header("X-APOLLO-OPERATION-NAME", "SubredditInfoByName")
+			.header("X-APOLLO-OPERATION-ID", crate::backends::gql::SUBREDDIT_INFO_HASH);
+		for (key, value) in headers.iter().filter(|(key, _)| !key.eq_ignore_ascii_case("content-type")) {
+			builder = builder.header(key, value);
+		}
+		let gql = match builder.json(&body).send().await {
+			Ok(res) => {
+				let status = res.status().as_u16();
+				match res.json::<serde_json::Value>().await {
+					Ok(v) if !v["data"]["subredditInfoByName"].is_null() => "ok".to_string(),
+					_ => format!("{status}"),
+				}
+			}
+			Err(e) => format!("failed: {e}"),
+		};
+		pause().await;
+		("ok".into(), json, gql)
+	}
+
+	/// Fails when a fingerprint the tests use is blocked.
+	#[test]
+	#[ignore = "live: probes every fingerprint, run with --ignored"]
+	fn test_probe_fingerprints() {
+		use std::fmt::Write;
+		let tested: Vec<(String, String)> = flatten(TEST_EMULATIONS).iter().map(|f| (format!("{:?}", f.profile), format!("{:?}", f.platform))).collect();
+		let mut table = String::from("| profile | platform | weight | token | json | gql | tests |\n|---|---|---|---|---|---|---|\n");
+		let mut broken = Vec::new();
+		let mut surprises = Vec::new();
+		block_on_shared(async {
+			for fingerprint in flatten(EMULATIONS) {
+				let (profile, platform) = (format!("{:?}", fingerprint.profile), format!("{:?}", fingerprint.platform));
+				let (token, json, gql) = probe(fingerprint.profile, fingerprint.platform).await;
+				let weight = if fingerprint.weight == SERVED { "served" } else { "refused" };
+				let in_tests = tested.contains(&(profile.clone(), platform.clone()));
+				let row = format!("| {profile} | {platform} | {weight} | {token} | {json} | {gql} | {} |", if in_tests { "yes" } else { "" });
+				println!("{row}");
+				writeln!(table, "{row}").unwrap();
+				if in_tests && json != "ok" {
+					broken.push(format!("{profile} on {platform}"));
+				}
+				// a failed token or request says nothing about the weight
+				if (json == "ok" || json == "blocked") && (fingerprint.weight == SERVED) != (json == "ok") {
+					surprises.push(format!("{profile} on {platform} ({weight}, json {json})"));
+				}
+			}
+		});
+		let mut summary = format!("## Fingerprints\n\n{table}\n");
+		if !surprises.is_empty() {
+			writeln!(summary, "Weight doesn't match the answer: {}\n", surprises.join(", ")).unwrap();
+		}
+		if !broken.is_empty() {
+			writeln!(summary, "**Used by the tests but not served:** {}\n", broken.join(", ")).unwrap();
+		}
+		println!("{summary}");
+		if let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") {
+			use std::io::Write as _;
+			let mut file = std::fs::OpenOptions::new().append(true).create(true).open(path).unwrap();
+			file.write_all(summary.as_bytes()).unwrap();
+		}
+		assert!(broken.is_empty(), "the tests use fingerprints Reddit blocks: {}", broken.join(", "));
 	}
 
 	// Its own process: the check expects the rate limit counter to start fresh,
