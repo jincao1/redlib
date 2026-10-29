@@ -469,8 +469,12 @@ pub async fn wiki(req: Request<Body>) -> Result<Response<Body>, String> {
 
 	match json(path, quarantined).await {
 		Ok(response) => Ok(template(&WikiTemplate {
+			wiki: rewrite_urls(response["data"]["content_html"].as_str().unwrap_or(if page == "index" {
+				"<h3>This subreddit has no wiki pages</h3>"
+			} else {
+				"<h3>Wiki page not found</h3>"
+			})),
 			sub,
-			wiki: rewrite_urls(response["data"]["content_html"].as_str().unwrap_or("<h3>Wiki not found</h3>")),
 			page,
 			prefs: Preferences::new(&req),
 			url,
