@@ -1138,6 +1138,8 @@ static REGEX_URL_NP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://np
 static REGEX_URL_PLAIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://reddit\.com/(.*)").unwrap());
 static REGEX_URL_VIDEOS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://v\.redd\.it/(.*)/(DASH|CMAF)_([0-9]{2,4}(\.mp4|$|\?source=fallback))").unwrap());
 static REGEX_URL_VIDEOS_HLS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://v\.redd\.it/(.+)/(HLSPlaylist\.m3u8.*)$").unwrap());
+static REGEX_URL_PACKAGED_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://packaged-media\.redd\.it/(.*)").unwrap());
+static REGEX_URL_EXTERNAL_PACKAGED_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://external-packaged-media\.redd\.it/(.*)").unwrap());
 static REGEX_URL_IMAGES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://i\.redd\.it/(.*)").unwrap());
 static REGEX_URL_THUMBS_A: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://a\.thumbs\.redditmedia\.com/(.*)").unwrap());
 static REGEX_URL_THUMBS_B: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://b\.thumbs\.redditmedia\.com/(.*)").unwrap());
@@ -1192,6 +1194,8 @@ pub fn format_url(url: &str) -> String {
 				"np.reddit.com" => capture(&REGEX_URL_NP, "/", 1),
 				"reddit.com" => capture(&REGEX_URL_PLAIN, "/", 1),
 				"v.redd.it" => chain!(capture(&REGEX_URL_VIDEOS, "/vid/", 3), capture(&REGEX_URL_VIDEOS_HLS, "/hls/", 2)),
+				"packaged-media.redd.it" => capture(&REGEX_URL_PACKAGED_MEDIA, "/packaged/", 1),
+				"external-packaged-media.redd.it" => capture(&REGEX_URL_EXTERNAL_PACKAGED_MEDIA, "/packaged-external/", 1),
 				"i.redd.it" => capture(&REGEX_URL_IMAGES, "/img/", 1),
 				"a.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_A, "/thumb/a/", 1),
 				"b.thumbs.redditmedia.com" => capture(&REGEX_URL_THUMBS_B, "/thumb/b/", 1),
@@ -1978,6 +1982,11 @@ mod tests {
 			"/preview/pre/qwerty.jpg?auto=webp&s=asdf"
 		);
 		assert_eq!(format_url("https://v.redd.it/foo/DASH_360.mp4?source=fallback"), "/vid/foo/DASH/360.mp4");
+		assert_eq!(format_url("https://packaged-media.redd.it/foo/muxed.mp4?e=1&s=2"), "/packaged/foo/muxed.mp4?e=1&s=2");
+		assert_eq!(
+			format_url("https://external-packaged-media.redd.it/t3_x/3p/streamable/y/video.mp4?v=1"),
+			"/packaged-external/t3_x/3p/streamable/y/video.mp4?v=1"
+		);
 		assert_eq!(
 			format_url("https://v.redd.it/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"),
 			"/hls/foo/HLSPlaylist.m3u8?a=bar&v=1&f=sd"

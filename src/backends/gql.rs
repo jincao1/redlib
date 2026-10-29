@@ -426,7 +426,10 @@ fn post(node: &Value) -> Option<Value> {
 	}
 
 	let streaming = &node["media"]["streaming"];
-	if let Some(hls_url) = streaming["hlsUrl"].as_str() {
+	if streaming.is_object() {
+		// Reddit's copies of external videos (Streamable, ...) give an MP4 as
+		// `hlsUrl` too, which must not be played as HLS.
+		let hls_url = streaming["hlsUrl"].as_str().filter(|url| url.contains(".m3u8"));
 		data["secure_media"] = json_value!({ "reddit_video": { "fallback_url": video_fallback_url(node, streaming), "hls_url": hls_url, "is_gif": streaming["isGif"] == true } });
 	}
 
@@ -701,8 +704,14 @@ fn merge_overview(posts: &Value, comments: &Value, post_after: &str, comment_aft
 	json_value!({ "kind": "Listing", "data": { "after": after, "children": children } })
 }
 
-/// The video-only MP4 the JSON API links as `fallback_url`: the largest rendition that fits the video.
+/// The MP4 to play without HLS. The muxed MP4 or the download has sound,
+/// unlike the JSON API's `fallback_url`, and also exists for external videos.
+/// Without them, v.redd.it's video-only rendition that fits the video is used.
 fn video_fallback_url(node: &Value, streaming: &Value) -> String {
+	let media = &node["media"];
+	if let Some(url) = media["packagedMedia"]["muxedMp4s"]["recommended"]["url"].as_str().or(media["download"]["url"].as_str()) {
+		return url.to_string();
+	}
 	let dimensions = &streaming["dimensions"];
 	let size = dimensions["width"].as_u64().unwrap_or_default().min(dimensions["height"].as_u64().unwrap_or_default());
 	let rendition = [1080, 720, 480, 360, 240].into_iter().find(|r| *r <= size).unwrap_or(240);
@@ -1003,6 +1012,28 @@ mod tests {
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
+	}
+
+	#[tokio::test]
+	async fn test_packaged_media_fixture() {
+		let posts = fixture("packaged_media.json")["data"]["postsInfoByIds"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter_map(post)
+			.collect::<Vec<_>>();
+
+		// The muxed MP4 has sound, unlike v.redd.it's CMAF renditions
+		let hosted = crate::utils::parse_post(&posts[0]).await;
+		assert_eq!(hosted.post_type, "video");
+		assert!(hosted.media.url.starts_with("/packaged/hynwcs24l1se1/muxed-high.mp4?"));
+		assert!(hosted.media.alt_url.starts_with("/hls/hynwcs24l1se1/HLSPlaylist.m3u8"));
+
+		// Reddit's copy of a Streamable clip is an MP4 behind `hlsUrl`
+		let external = crate::utils::parse_post(&posts[1]).await;
+		assert_eq!(external.post_type, "video");
+		assert!(external.media.url.starts_with("/packaged-external/t3_1xhfggw/3p/streamable/9gsuah/video.mp4?"));
+		assert_eq!(external.media.alt_url, "");
 	}
 
 	#[tokio::test]
