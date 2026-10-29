@@ -788,6 +788,27 @@ button.submit:hover > svg {
     border-radius: 0;
 }
 
+#search_sort select,
+#sort_submit,
+#inside {
+    transition: 0.2s background;
+}
+
+#search_sort select:hover,
+#search_sort select:focus-visible,
+#sort_submit:hover,
+#sort_submit:focus-visible,
+#inside:hover,
+#inside:focus-within {
+    background: var(--foreground);
+    text-decoration: underline;
+    outline: none;
+}
+
+#restrict_sr:focus-visible {
+    outline: none;
+}
+
 #sort_options + #timeframe:not(#search_sort #timeframe) {
     border-radius: 5px 0px 0px 5px;
 }
