@@ -595,6 +595,15 @@ aside {
     background-color: var(--highlighted);
 }
 
+.subscribe:hover,
+.unsubscribe:hover,
+.filter:hover,
+.unfilter:hover,
+.copy:hover,
+.import:hover {
+    text-decoration: underline;
+}
+
 /* Feeds */
 
 #feeds {
