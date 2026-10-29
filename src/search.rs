@@ -374,8 +374,8 @@ mod tests {
 		}
 	}
 
-	fn render(typed: &str, sort: &str, restrict_sr: &str) -> String {
-		let page = SearchTemplate {
+	fn page(typed: &str, sort: &str, restrict_sr: &str) -> SearchTemplate {
+		SearchTemplate {
 			posts: Vec::new(),
 			subreddits: Vec::new(),
 			users: Vec::new(),
@@ -397,8 +397,11 @@ mod tests {
 			all_posts_hidden_nsfw: false,
 			no_posts: false,
 			sub: if restrict_sr.is_empty() { String::new() } else { "rust".to_string() },
-		};
-		page.render().unwrap()
+		}
+	}
+
+	fn render(typed: &str, sort: &str, restrict_sr: &str) -> String {
+		page(typed, sort, restrict_sr).render().unwrap()
 	}
 
 	#[test]
@@ -409,15 +412,37 @@ mod tests {
 		assert!(html.contains(r#"<input type="hidden" name="type" value="media">"#));
 		assert!(html.contains(r#"name="post_types""#) && html.contains("GIF") && !html.contains(r#"value="poll""#));
 		assert!(html.contains(r#"name="t""#) && !html.contains(r#"value="comments""#));
-		assert!(html.contains("&type=media&restrict_sr=&sort=top&t=&post_types=&after=abc%3D"));
+		assert!(html.contains(r#"<div class="media_grid search_results">"#), "{html}");
+		assert!(
+			html.contains(r#"<a id="show_more" href="?q=aurora%20borealis&type=media&restrict_sr=&sort=top&t=&post_types=&after=abc%3D" accesskey="N">Show more</a>"#),
+			"{html}"
+		);
 
 		let html = render("comments", "new", "on");
-		assert!(html.contains(r#"class="search_results_comments""#));
+		assert!(html.contains(r#"<div class="search_results search_results_comments">"#), "{html}");
+		assert!(html.contains(r#"id="show_more""#) && !html.contains("NEXT"));
 		assert!(html.contains(r#"<a href="?q=aurora%20borealis&type=posts&restrict_sr=on" >Posts</a>"#), "{html}");
 		assert!(!html.contains(r#"name="post_types""#) && !html.contains(r#"name="t""#));
 
 		let html = render("sr_user", "", "");
 		assert!(html.contains(r#"class="selected">Communities</a>"#));
 		assert!(!html.contains(r#"name="sort""#) && !html.contains(r#"name="post_types""#));
+		assert!(html.contains(r#"<a id="show_more" href="?q=aurora%20borealis&type=communities&"#), "{html}");
+
+		let mut people = page("people", "", "");
+		people.users.push(User {
+			name: "spez".to_string(),
+			icon: String::new(),
+			karma: ("1k".to_string(), "1000".to_string()),
+			age: "6y".to_string(),
+			created: String::new(),
+		});
+		let html = people.render().unwrap();
+		assert!(html.contains(r#"<div id="search_subreddits" class="search_results">"#), "{html}");
+		assert!(html.contains(r#"<a id="show_more" href="?q=aurora%20borealis&type=people&"#), "{html}");
+
+		let mut no_more = page("posts", "", "");
+		no_more.params.after.clear();
+		assert!(!no_more.render().unwrap().contains("show_more"));
 	}
 }

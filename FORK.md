@@ -109,7 +109,8 @@ Own features:
 - **Search tabs like Reddit's**: Posts, Comments, Media, Communities and People.
   Each tab is a plain link with only its own filters (post type, sort, time),
   so they work without JavaScript. Results come from `DynamicSearch`, the query
-  the Android app uses for its search tabs
+  the Android app uses for its search tabs. "Show more" adds the next results
+  below, or opens them as the next page without JavaScript
   ([#69](https://github.com/Nachtalb/redlib/issues/69)).
 
 ## Configuration

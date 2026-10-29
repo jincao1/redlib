@@ -995,6 +995,11 @@ main > * > footer > a {
     margin-top: 20px;
 }
 
+/* Keeps the scroll position on the results, not the link, when more are added */
+.search_more {
+    overflow-anchor: none;
+}
+
 .search_results_comments .comment {
     margin-bottom: 10px;
 }
