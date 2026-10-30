@@ -6,8 +6,8 @@ use crate::reddit_health::{self, Outcome};
 use crate::server::RequestExt;
 use crate::subreddit::{can_access_quarantine, quarantine};
 use crate::utils::{
-	build_rss_comment_item, build_rss_item, clean_url, enable_rss, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, rss_page_link, rss_response,
-	setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
+	body_html, build_rss_comment_item, build_rss_item, clean_url, enable_rss, error, format_num, get_filters, nsfw_landing, param, parse_post, rewrite_emotes, rss_page_link,
+	rss_response, setting, sfw_only, template, time, val, Author, Awards, Comment, Flair, FlairPart, Post, Preferences,
 };
 use askama::Template;
 use hyper::{Request, Response};
@@ -187,7 +187,7 @@ fn collect_rss_comments(listing: &serde_json::Value, link_title: &str, items: &m
 		}
 		let data = &comment["data"];
 		let created_ts = data["created_utc"].as_f64().unwrap_or_default().round() as u64;
-		let body = rewrite_emotes(&data["media_metadata"], val(comment, "body_html"));
+		let body = rewrite_emotes(&data["media_metadata"], body_html(comment, "body", "body_html"));
 		items.push((
 			created_ts,
 			build_rss_comment_item(&val(comment, "author"), link_title, &val(comment, "permalink"), &body, created_ts),
@@ -283,7 +283,7 @@ fn build_comment(
 			get_setting("REDLIB_PUSHSHIFT_FRONTEND").unwrap_or_else(|| String::from(crate::config::DEFAULT_PUSHSHIFT_FRONTEND)),
 		)
 	} else {
-		rewrite_emotes(&data["media_metadata"], val(comment, "body_html"))
+		rewrite_emotes(&data["media_metadata"], body_html(comment, "body", "body_html"))
 	};
 	let kind = comment["kind"].as_str().unwrap_or_default().to_string();
 

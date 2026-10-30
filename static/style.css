@@ -2099,6 +2099,37 @@ h6 {
 
 .md code:not(.md pre > code) {
     background: var(--highlighted);
+    border-radius: 3px;
+    padding: 0 3px;
+}
+
+/* Syntax highlighting: hues mixed with the theme's text colour, so they keep
+   their contrast in light and dark themes */
+.hl-comment {
+    color: color-mix(in srgb, var(--text) 55%, transparent);
+    font-style: italic;
+}
+.hl-keyword,
+.hl-storage {
+    color: color-mix(in srgb, #c678dd 75%, var(--text));
+}
+.hl-keyword.hl-operator {
+    color: inherit;
+}
+.hl-string {
+    color: color-mix(in srgb, #98c379 75%, var(--text));
+}
+.hl-constant {
+    color: color-mix(in srgb, #d19a66 75%, var(--text));
+}
+.hl-entity.hl-name.hl-function,
+.hl-support.hl-function {
+    color: color-mix(in srgb, #61afef 75%, var(--text));
+}
+.hl-entity.hl-name.hl-type,
+.hl-entity.hl-name.hl-class,
+.hl-support.hl-type {
+    color: color-mix(in srgb, #e5c07b 75%, var(--text));
 }
 
 /* Tables */
