@@ -695,44 +695,29 @@ fn search_user(author: &Value) -> Option<Value> {
 	} }))
 }
 
-const PROFILE_HASH: &str = "096ccf5d943485822cb6d3e0dc13f9977da1984514e1d539e1ed38a51158e689";
+const PROFILE_HASH: &str = "4822704f40348a38e37626b62f7f2a4e4af88aa5ab90f271a0c539db7ab2ac2f";
 const SEARCH_PEOPLE_HASH: &str = "d9211ac33f72079f25cb4c8a8e00a2b4889e984f70278ec91283965c7856d33d";
 const USER_POSTS_HASH: &str = "78a213c02a340db4a707d4bcd375ce34f733b75893379603acb4ec20388fafe6";
 const USER_COMMENTS_HASH: &str = "e1b37f521fb40af2120946b70e7fbf6a3d924db2abaf28ff2164d4cfacca28db";
 const COMMENTS_BY_IDS_HASH: &str = "51ab9f2e0eb87b6dac9aac02012ba7046049e516ec55ec442abfed0f19c6f311";
 
-/// The profile only has the karma in search results.
 async fn user_about(name: &str) -> Result<Value, String> {
-	let (profile, people) = futures_lite::future::zip(
-		query("ProfileDetailsByName", PROFILE_HASH, &json_value!({ "profileName": name })),
-		query(
-			"SearchPeople",
-			SEARCH_PEOPLE_HASH,
-			&json_value!({ "query": name, "filters": [], "pageSize": 5, "productSurface": "" }),
-		),
-	)
-	.await;
-	let karma = people.ok().and_then(|people| {
-		let authors = people["data"]["search"]["general"]["authors"]["edges"].as_array()?.clone();
-		authors
-			.into_iter()
-			.find(|a| a["node"]["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
-			.map(|a| a["node"]["karma"]["total"].clone())
-	});
-	user(&profile?["data"]["profileByName"], karma.unwrap_or_default()).ok_or_else(|| format!("u/{name} not found"))
+	let response = query("UserProfileDetails", PROFILE_HASH, &json_value!({ "username": name })).await?;
+	user(&response["data"]["redditorInfoByName"]).ok_or_else(|| format!("u/{name} not found"))
 }
 
-/// Converts a GraphQL profile into a user of the JSON API (`about.json`).
-fn user(profile: &Value, karma: Value) -> Option<Value> {
-	let name = profile["name"].as_str()?;
+/// Converts a GraphQL redditor into a user of the JSON API (`about.json`).
+fn user(redditor: &Value) -> Option<Value> {
+	let name = redditor["name"].as_str()?;
+	let profile = &redditor["profileInfo"];
 	Some(json_value!({ "kind": "t2", "data": {
-		"name": name.strip_prefix("u_").unwrap_or(name),
+		"name": name,
 		"created": timestamp(&profile["createdAt"]),
-		"total_karma": karma,
+		"total_karma": redditor["karma"]["total"].as_f64().map(|karma| karma.round() as i64),
 		"subreddit": {
 			"title": profile["title"],
-			"icon_img": profile["styles"]["icon"],
-			"banner_img": profile["styles"]["legacyBannerBackgroundImage"],
+			"icon_img": redditor["icon"]["url"],
+			"banner_img": profile["styles"]["profileBanner"],
 			"public_description": profile["publicDescriptionText"],
 			"over_18": profile["isNsfw"] == true,
 		},
@@ -1327,9 +1312,11 @@ mod tests {
 
 	#[test]
 	fn test_user_fixtures() {
-		let about = user(&fixture("profile.json")["data"]["profileByName"], 941120.into()).unwrap();
+		let about = user(&fixture("profile.json")["data"]["redditorInfoByName"]).unwrap();
 		assert_eq!(about["data"]["name"], "spez");
-		assert_eq!(about["data"]["total_karma"], 941120);
+		assert_eq!(about["data"]["total_karma"], 941258);
+		assert!(about["data"]["subreddit"]["icon_img"].as_str().is_some_and(|url| url.contains("profileIcon")));
+		assert!(user(&Value::Null).is_none());
 		assert_eq!(about["data"]["subreddit"]["public_description"], "Reddit CEO");
 		assert!(about["data"]["created"].as_f64().unwrap() > 1.1e9);
 
