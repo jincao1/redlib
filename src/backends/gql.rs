@@ -696,7 +696,6 @@ fn search_user(author: &Value) -> Option<Value> {
 }
 
 const PROFILE_HASH: &str = "4822704f40348a38e37626b62f7f2a4e4af88aa5ab90f271a0c539db7ab2ac2f";
-const SEARCH_PEOPLE_HASH: &str = "d9211ac33f72079f25cb4c8a8e00a2b4889e984f70278ec91283965c7856d33d";
 const USER_POSTS_HASH: &str = "78a213c02a340db4a707d4bcd375ce34f733b75893379603acb4ec20388fafe6";
 const USER_COMMENTS_HASH: &str = "e1b37f521fb40af2120946b70e7fbf6a3d924db2abaf28ff2164d4cfacca28db";
 const COMMENTS_BY_IDS_HASH: &str = "51ab9f2e0eb87b6dac9aac02012ba7046049e516ec55ec442abfed0f19c6f311";
