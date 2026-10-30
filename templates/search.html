@@ -157,8 +157,8 @@
             </div>
         {% endif %}
         {% if prefs.use_hls == "on" %}
-            <script src="/hls.min.js"></script>
-            <script src="/playHLSVideo.js"></script>
+            <script src="/hls.min.js?v={{ crate::utils::short_git_hash() }}"></script>
+            <script src="/playHLSVideo.js?v={{ crate::utils::short_git_hash() }}"></script>
         {% endif %}
 
         {% if params.after != "" %}
@@ -166,6 +166,6 @@
                 <a id="show_more" href="?q={{ params.q_url }}&type={{ params.tab.name }}&restrict_sr={{ params.restrict_sr }}&sort={{ params.sort }}&t={{ params.t }}&post_types={{ params.post_types }}&after={{ params.after }}" accesskey="N">Show more</a>
             </footer>
         {% endif %}
-        <script src="/searchTabs.js"></script>
+        <script src="/searchTabs.js?v={{ crate::utils::short_git_hash() }}"></script>
     </div>
 {% endblock %}

@@ -16,6 +16,6 @@
 {% block footer %}
     <div id="update-status" class="update_footer" hidden></div>
     <div id="git_commit" data-value="{{ crate::instance_info::INSTANCE_INFO.git_commit }}"></div>
-    <script src="/check_update.js"></script>
+    <script src="/check_update.js?v={{ crate::utils::short_git_hash() }}"></script>
     {{ super() }}
 {% endblock %}

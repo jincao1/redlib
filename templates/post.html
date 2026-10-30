@@ -38,11 +38,11 @@
     {% else %}
         <meta property="og:type" content="website">
         {% if single_thread %}
-            <script src="/highlighted.js" defer></script>
+            <script src="/highlighted.js?v={{ crate::utils::short_git_hash() }}" defer></script>
         {% endif %}
     {% endif %}
-    <script src="/downloadGallery.js" defer></script>
-    <script src="/loadMoreComments.js" defer></script>
+    <script src="/downloadGallery.js?v={{ crate::utils::short_git_hash() }}" defer></script>
+    <script src="/loadMoreComments.js?v={{ crate::utils::short_git_hash() }}" defer></script>
 {% endblock %}
 
 {% block subscriptions %}
