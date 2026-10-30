@@ -63,16 +63,16 @@ async fn fetch(path: &str) -> Result<Value, Failure> {
 
 /// Tries `path` on Reddit's web host with each session in turn, starting at a
 /// rotating index, and returns the first successful response.
-async fn web_session_get(path: &str, sessions: &[(usize, String)]) -> Option<WreqResponse> {
+async fn web_session_get(path: &str, sessions: &[(String, String)]) -> Option<WreqResponse> {
 	let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
 	for i in 0..sessions.len() {
-		let (number, cookie) = &sessions[(start + i) % sessions.len()];
+		let (label, cookie) = &sessions[(start + i) % sessions.len()];
 		match reddit_web_get(path, cookie).await {
 			Ok(web_response) if web_response.status().is_success() => {
-				trace!("Retried {path} with session #{number}: status {}", web_response.status());
+				trace!("Retried {path} with session {label}: status {}", web_response.status());
 				return Some(web_response);
 			}
-			Ok(web_response) => warn!("Session #{number} was refused for {path}: status {}", web_response.status()),
+			Ok(web_response) => warn!("Session {label} was refused for {path}: status {}", web_response.status()),
 			Err(e) => warn!("Couldn't reach Reddit's web host for {path}: {e}"),
 		}
 	}

@@ -21,7 +21,7 @@ struct Job {
 }
 
 struct Session {
-	number: usize,
+	label: String,
 	cookie: String,
 	browser: OnceCell<Option<Browser>>,
 }
@@ -91,17 +91,20 @@ fn worker(mut rx: mpsc::UnboundedReceiver<Job>) {
 		.expect("Should always be able to build the obscura runtime");
 	let local = tokio::task::LocalSet::new();
 	local.block_on(&rt, async move {
-		let sessions: Rc<Vec<Session>> = Rc::new(
-			session_cookies()
-				.into_iter()
-				.map(|(number, cookie)| Session {
-					number,
-					cookie,
-					browser: OnceCell::new(),
-				})
-				.collect(),
-		);
+		let mut sessions: Vec<Rc<Session>> = Vec::new();
 		while let Some(job) = rx.recv().await {
+			// The sessions can change while running; a session that stays keeps its browser.
+			sessions = session_cookies()
+				.into_iter()
+				.map(|(label, cookie)| match sessions.iter().find(|session| session.cookie == cookie) {
+					Some(session) => session.clone(),
+					None => Rc::new(Session {
+						label,
+						cookie,
+						browser: OnceCell::new(),
+					}),
+				})
+				.collect();
 			let sessions = sessions.clone();
 			tokio::task::spawn_local(async move {
 				let _ = job.reply.send(fetch(&sessions, &job.path).await);
@@ -118,13 +121,13 @@ async fn start_browser(session: &Session) -> Option<Browser> {
 	let browser = match Browser::builder().stealth(true).build() {
 		Ok(browser) => browser,
 		Err(e) => {
-			warn!("Couldn't start Obscura for session #{}: {e}", session.number);
+			warn!("Couldn't start Obscura for session {}: {e}", session.label);
 			return None;
 		}
 	};
 	for pair in session.cookie.split(';').map(str::trim).filter(|pair| !pair.is_empty()) {
 		if browser.cookies().set(&format!("{pair}; Domain=.reddit.com; Path=/; Secure"), WEB_BASE).is_err() {
-			warn!("Couldn't load session #{} into Obscura", session.number);
+			warn!("Couldn't load session {} into Obscura", session.label);
 			return None;
 		}
 	}
@@ -132,7 +135,7 @@ async fn start_browser(session: &Session) -> Option<Browser> {
 	Some(browser)
 }
 
-async fn fetch(sessions: &[Session], path: &str) -> Reply {
+async fn fetch(sessions: &[Rc<Session>], path: &str) -> Reply {
 	let start = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
 	let mut last = Err("No usable session for Obscura".to_string());
 	for i in 0..sessions.len() {
@@ -143,10 +146,10 @@ async fn fetch(sessions: &[Session], path: &str) -> Reply {
 		last = navigate(browser, &format!("{WEB_BASE}{path}")).await;
 		match &last {
 			Ok((status, _)) if (200..300).contains(status) => {
-				trace!("Fetched {path} with session #{}", session.number);
+				trace!("Fetched {path} with session {}", session.label);
 				break;
 			}
-			Ok((status, _)) => warn!("Session #{} was refused for {path}: status {status}", session.number),
+			Ok((status, _)) => warn!("Session {} was refused for {path}: status {status}", session.label),
 			Err(e) => warn!("Couldn't reach Reddit for {path}: {e}"),
 		}
 	}

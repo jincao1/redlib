@@ -149,6 +149,12 @@ pub struct Config {
 	#[serde(skip_serializing)]
 	pub(crate) reddit_cookie: Option<String>,
 
+	/// File with more sessions, one per line, reread while running. The path
+	/// says nothing useful to visitors, so it isn't serialized either.
+	#[serde(rename = "REDLIB_REDDIT_COOKIE_FILE")]
+	#[serde(skip_serializing)]
+	pub(crate) reddit_cookie_file: Option<String>,
+
 	/// Listener settings; `main` reads them, `/info` doesn't show them.
 	#[serde(rename = "REDLIB_LISTEN_PORT")]
 	#[serde(skip_serializing)]
@@ -277,6 +283,7 @@ impl Config {
 			default_posts_per_page: parse("REDLIB_DEFAULT_POSTS_PER_PAGE"),
 			default_max_comment_thread_depth: parse("REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH"),
 			reddit_cookie: parse("REDLIB_REDDIT_COOKIE"),
+			reddit_cookie_file: parse("REDLIB_REDDIT_COOKIE_FILE"),
 			port: parse("REDLIB_LISTEN_PORT"),
 			address: parse("REDLIB_LISTEN_ADDRESS"),
 			hsts: parse("REDLIB_HSTS"),
@@ -334,6 +341,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_POSTS_PER_PAGE" => config.default_posts_per_page.clone(),
 		"REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH" => config.default_max_comment_thread_depth.clone(),
 		"REDLIB_REDDIT_COOKIE" => config.reddit_cookie.clone(),
+		"REDLIB_REDDIT_COOKIE_FILE" => config.reddit_cookie_file.clone(),
 		"REDLIB_LISTEN_PORT" => config.port.clone(),
 		"REDLIB_LISTEN_ADDRESS" => config.address.clone(),
 		"REDLIB_HSTS" => config.hsts.clone(),
