@@ -749,6 +749,22 @@ mod tests {
 	}
 
 	#[test]
+	fn test_sessions_in_the_old_documented_form_still_work() {
+		// `reddit_session=...;token_v2=...` as the old docs asked for, with a
+		// long expired token_v2: sent exactly as before
+		let old = format!("reddit_session={};token_v2={}", jwt(now_secs() + 3600), jwt(1000));
+		assert_eq!(session_cookie(&format!(" {old} ")), Ok(old));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_old_session_setting_keeps_every_session() {
+		let old = |n: u64| format!("reddit_session={};token_v2={}", jwt(now_secs() + n), jwt(1000));
+		std::env::set_var("REDLIB_REDDIT_COOKIE", format!("{} | {}|{}", old(1000), old(2000), old(3000)));
+		assert_eq!(session_cookies(), vec![(1, old(1000)), (2, old(2000)), (3, old(3000))]);
+	}
+
+	#[test]
 	fn test_expired_session_cookie_is_skipped() {
 		let valid = jwt(now_secs() + 3600);
 		assert_eq!(session_cookie(&valid), Ok(format!("reddit_session={valid}")));
