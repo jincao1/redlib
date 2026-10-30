@@ -32,13 +32,14 @@ use url::Url;
 /// release code.
 #[macro_export]
 macro_rules! dbg_msg {
+	// `cfg!` rather than `#[cfg]`, so release builds still see the value used
 	($x:expr) => {
-		#[cfg(debug_assertions)]
-		eprintln!("{}:{}: {}", file!(), line!(), $x.to_string())
+		if cfg!(debug_assertions) {
+			eprintln!("{}:{}: {}", file!(), line!(), $x.to_string())
+		}
 	};
 
 	($($x:expr),+) => {
-		#[cfg(debug_assertions)]
 		dbg_msg!(format!($($x),+))
 	};
 }
