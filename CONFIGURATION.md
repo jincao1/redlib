@@ -65,7 +65,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENDPOINTS`, `ENDPOINTS_<KIND>` | List      | per kind                               | Which backends load Reddit data, in which order. See [Backend order](#backend-order). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `GQL_FEED_REQUESTS`       | Integer         | `2`                                    | Requests the `gql` backend makes to fill one r/all page. Reddit sends only about 8 posts for the first. |
-| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
 | `LISTEN_PORT`             | Integer         | `8080`                                 | Port to listen on. `-p` and the `PORT` environment variable take precedence. |
 | `LISTEN_ADDRESS`          | String          | `[::]`                                 | Address to listen on. `-a` takes precedence. |
 | `HSTS`                    | Integer         | `604800`                               | `max-age` of the HSTS header in seconds. `-H` takes precedence. |
@@ -74,11 +74,13 @@ Assign a default value for each instance-specific setting by passing environment
 
 ### Reddit session
 
-Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` and `token_v2` cookies of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookies are needed. Separate several sessions with `|` to rotate between them:
+Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` cookie of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookie is needed. Separate several sessions with `|` to rotate between them:
 
 ```bash
-REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=...|reddit_session=...;token_v2=..."
+REDLIB_REDDIT_COOKIE="reddit_session=...|reddit_session=..."
 ```
+
+The `reddit_session=` prefix is optional. A whole `Cookie` header works too, as long as it has `reddit_session` in it. Sessions whose `reddit_session` has expired (it lasts about six months) are skipped with a warning in the log.
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 

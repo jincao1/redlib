@@ -335,15 +335,48 @@ pub(crate) fn session_cookies() -> Vec<(usize, String)> {
 		.split('|')
 		.enumerate()
 		.filter(|(_, part)| !part.trim().is_empty())
-		.filter_map(|(i, part)| {
-			let cookie = sanitize_cookie(part);
-			if cookie.is_none() {
+		.filter_map(|(i, part)| match session_cookie(part) {
+			Ok(cookie) => Some((i + 1, cookie)),
+			Err(reason) => {
 				// The value is a credential, so it must not be logged.
-				warn!("Ignoring session #{} in {REDDIT_COOKIE_SETTING}: not a valid Cookie header", i + 1);
+				warn_once(format!("Ignoring session #{} in {REDDIT_COOKIE_SETTING}: {reason}", i + 1));
+				None
 			}
-			cookie.map(|cookie| (i + 1, cookie))
 		})
 		.collect()
+}
+
+/// The `Cookie` header for a configured session, or why it can't be used.
+///
+/// Only `reddit_session` is needed, so a bare value is taken as one. An
+/// expired one is skipped before Reddit refuses it, since every refusal
+/// counts against the browser emulation.
+fn session_cookie(raw: &str) -> Result<String, &'static str> {
+	let cookie = sanitize_cookie(raw).ok_or("not a valid Cookie header")?;
+	let cookie = if cookie.contains('=') { cookie } else { format!("reddit_session={cookie}") };
+	let session = cookie
+		.split(';')
+		.find_map(|pair| pair.trim().strip_prefix("reddit_session="))
+		.ok_or("no reddit_session cookie")?;
+	if jwt_expiry(session).is_some_and(|expiry| expiry <= now_secs()) {
+		return Err("its reddit_session has expired");
+	}
+	Ok(cookie)
+}
+
+/// The `exp` claim of a JWT, if `token` is one.
+fn jwt_expiry(token: &str) -> Option<u64> {
+	use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+	let claims: serde_json::Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?).ok()?;
+	claims["exp"].as_f64().map(|exp| exp as u64)
+}
+
+/// Logs `message` the first time only: the sessions are read on every request.
+fn warn_once(message: String) {
+	static SEEN: LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+	if SEEN.lock().is_ok_and(|mut seen| seen.insert(message.clone())) {
+		warn!("{message}");
+	}
 }
 
 /// Trims and validates a `Cookie` header from configuration.
@@ -701,6 +734,46 @@ mod tests {
 			session_cookies(),
 			vec![(1, "reddit_session=a; token_v2=b".to_string()), (4, "reddit_session=d".to_string())]
 		);
+	}
+
+	fn jwt(exp: u64) -> String {
+		use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+		format!("eyJhbGciOiJSUzI1NiJ9.{}.sig", URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{exp}}}")))
+	}
+
+	#[test]
+	fn test_session_cookie_needs_only_reddit_session() {
+		assert_eq!(session_cookie(" abc ").as_deref(), Ok("reddit_session=abc"));
+		assert_eq!(session_cookie("reddit_session=abc").as_deref(), Ok("reddit_session=abc"));
+		assert_eq!(session_cookie("token_v2=abc"), Err("no reddit_session cookie"));
+	}
+
+	#[test]
+	fn test_sessions_in_the_old_documented_form_still_work() {
+		// `reddit_session=...;token_v2=...` as the old docs asked for, with a
+		// long expired token_v2: sent exactly as before
+		let old = format!("reddit_session={};token_v2={}", jwt(now_secs() + 3600), jwt(1000));
+		assert_eq!(session_cookie(&format!(" {old} ")), Ok(old));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_old_session_setting_keeps_every_session() {
+		let old = |n: u64| format!("reddit_session={};token_v2={}", jwt(now_secs() + n), jwt(1000));
+		std::env::set_var("REDLIB_REDDIT_COOKIE", format!("{} | {}|{}", old(1000), old(2000), old(3000)));
+		assert_eq!(session_cookies(), vec![(1, old(1000)), (2, old(2000)), (3, old(3000))]);
+	}
+
+	#[test]
+	fn test_expired_session_cookie_is_skipped() {
+		let valid = jwt(now_secs() + 3600);
+		assert_eq!(session_cookie(&valid), Ok(format!("reddit_session={valid}")));
+		assert_eq!(
+			session_cookie(&format!("token_v2=x; reddit_session={}", jwt(now_secs() - 1))),
+			Err("its reddit_session has expired")
+		);
+		// Older sessions aren't JWTs; Reddit decides about those
+		assert!(session_cookie("reddit_session=123%2C2024-01-01T00%3A00%3A00%2Cabc").is_ok());
 	}
 
 	#[test]
