@@ -555,11 +555,13 @@ aside {
 #user_actions {
     column-gap: 10px;
     align-self: stretch;
+    min-width: max-content;
 }
 
 #sub_actions button,
 #user_actions button {
     width: 100%;
+    white-space: nowrap;
 }
 
 summary:not(.comment_data):hover {
