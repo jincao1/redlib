@@ -65,8 +65,8 @@
                             {% endif %}
                         {% endfor %}
                         {% if prefs.use_hls == "on" %}
-                            <script src="/hls.min.js"></script>
-                            <script src="/playHLSVideo.js"></script>
+                            <script src="/hls.min.js?v={{ crate::utils::short_git_hash() }}"></script>
+                            <script src="/playHLSVideo.js?v={{ crate::utils::short_git_hash() }}"></script>
                         {% endif %}
                     </div>
                 {% endif %}
