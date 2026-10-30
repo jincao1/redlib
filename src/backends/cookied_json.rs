@@ -1,6 +1,6 @@
 //! Reddit's web host with the logged-in sessions from `REDLIB_REDDIT_COOKIE`.
 
-use super::{check_json, Backend, Failure, Fetch};
+use super::{check_json, Backend, Failure, Fetch, Kind};
 use crate::client::{reroll_client, session_cookies, IntoHyperResponse, ALTERNATIVE_REDDIT_URL_BASE, CLIENT};
 use bytes::Buf;
 use log::{trace, warn};
@@ -39,6 +39,7 @@ static NEXT_SESSION: AtomicUsize = AtomicUsize::new(0);
 /// When every session is refused, Reddit may have flagged the browser
 /// emulation, so switch to another one and try once more.
 async fn fetch(path: &str) -> Result<Value, Failure> {
+	let path = &*Kind::json_path(path);
 	let sessions = session_cookies();
 	let mut response = web_session_get(path, &sessions).await;
 	if response.is_none() && reroll_client("Reddit refused every session") {

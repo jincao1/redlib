@@ -29,6 +29,7 @@ fn blames_fingerprint(path: &str) -> bool {
 }
 
 async fn fetch(path: &str, quarantine: bool) -> Result<Value, Failure> {
+	let path = &*Kind::json_path(path);
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);

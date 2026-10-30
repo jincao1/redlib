@@ -64,6 +64,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_GQL`              | `["on", "off"]` | `on`                                   | Allows the `gql` backend: Reddit's GraphQL API. `off` never contacts it. |
 | `ENDPOINTS`, `ENDPOINTS_<KIND>` | List      | per kind                               | Which backends load Reddit data, in which order. See [Backend order](#backend-order). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
+| `GQL_FEED_REQUESTS`       | Integer         | `2`                                    | Requests the `gql` backend makes to fill one r/all page. Reddit sends only about 8 posts for the first. |
 | `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
 | `LISTEN_PORT`             | Integer         | `8080`                                 | Port to listen on. `-p` and the `PORT` environment variable take precedence. |
 | `LISTEN_ADDRESS`          | String          | `[::]`                                 | Address to listen on. `-a` takes precedence. |
@@ -109,13 +110,18 @@ While running, Redlib reorders the listed backends by how often each worked in t
 | `POST`       | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `COMMENTS`   | ⚠️ blocked | ✅             | ✅    | ✅        | ✅                     | gql, cookied-json, obscura-cookied-json, scraped, json |
 | `LISTING`    | ✅         | ✅             | ⚠️¹   | ❌        | ✅                     | json, gql, cookied-json, obscura-cookied-json |
+| `ALL`        | ✅²        | ✅²            | ⚠️³   | ❌        | ✅²                    | json, gql, cookied-json, obscura-cookied-json |
 | `SUBREDDIT`  | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `USER`       | ⚠️ blocked | ✅             | ✅    | ❌        | ✅                     | gql, cookied-json, obscura-cookied-json |
 | `SEARCH`     | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `WIKI`       | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |
 | `DUPLICATES` | ✅         | ✅             | ❌    | ❌        | ✅                     | json, cookied-json, obscura-cookied-json |
 
-¹ Skipped without a request for feeds of several subreddits (`r/a+b`, the front page of your subscriptions); only 8 posts per page on r/all.
+¹ Skipped without a request for feeds of several subreddits (`r/a+b`, the front page of your subscriptions).
+
+² Reddit [retired r/all](https://www.reddit.com/r/reddithelp/comments/1rfmh8h/a_helpful_link_to_rall/) and answers `/r/all.json` with 403, but still serves the same feed as `/r/all+.json`, which is requested instead.
+
+³ The old GraphQL feed sends about 8 posts per request, so a page takes up to `REDLIB_GQL_FEED_REQUESTS` requests.
 
 </details>
 

@@ -118,6 +118,9 @@ pub struct Config {
 	#[serde(rename = "REDLIB_SCRAPE_COMMENT_PREFETCH")]
 	pub(crate) scrape_comment_prefetch: Option<String>,
 
+	#[serde(rename = "REDLIB_GQL_FEED_REQUESTS")]
+	pub(crate) gql_feed_requests: Option<String>,
+
 	#[serde(rename = "REDLIB_FULL_URL")]
 	pub(crate) full_url: Option<String>,
 
@@ -178,6 +181,9 @@ pub struct Config {
 
 	#[serde(rename = "REDLIB_ENDPOINTS_LISTING")]
 	pub(crate) endpoints_listing: Option<String>,
+
+	#[serde(rename = "REDLIB_ENDPOINTS_ALL")]
+	pub(crate) endpoints_all: Option<String>,
 
 	#[serde(rename = "REDLIB_ENDPOINTS_SUBREDDIT")]
 	pub(crate) endpoints_subreddit: Option<String>,
@@ -262,6 +268,7 @@ impl Config {
 			enable_scrape_fallback: parse("REDLIB_ENABLE_SCRAPE_FALLBACK"),
 			enable_gql: parse("REDLIB_ENABLE_GQL"),
 			scrape_comment_prefetch: parse("REDLIB_SCRAPE_COMMENT_PREFETCH"),
+			gql_feed_requests: parse("REDLIB_GQL_FEED_REQUESTS"),
 			full_url: parse("REDLIB_FULL_URL"),
 			default_remove_default_feeds: parse("REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS"),
 			source_url: parse("REDLIB_SOURCE_URL"),
@@ -279,6 +286,7 @@ impl Config {
 			endpoints_post: parse("REDLIB_ENDPOINTS_POST"),
 			endpoints_comments: parse("REDLIB_ENDPOINTS_COMMENTS"),
 			endpoints_listing: parse("REDLIB_ENDPOINTS_LISTING"),
+			endpoints_all: parse("REDLIB_ENDPOINTS_ALL"),
 			endpoints_subreddit: parse("REDLIB_ENDPOINTS_SUBREDDIT"),
 			endpoints_user: parse("REDLIB_ENDPOINTS_USER"),
 			endpoints_search: parse("REDLIB_ENDPOINTS_SEARCH"),
@@ -317,6 +325,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_ENABLE_SCRAPE_FALLBACK" => config.enable_scrape_fallback.clone(),
 		"REDLIB_ENABLE_GQL" => config.enable_gql.clone(),
 		"REDLIB_SCRAPE_COMMENT_PREFETCH" => config.scrape_comment_prefetch.clone(),
+		"REDLIB_GQL_FEED_REQUESTS" => config.gql_feed_requests.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),
 		"REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS" => config.default_remove_default_feeds.clone(),
 		"REDLIB_SOURCE_URL" => config.source_url.clone(),
@@ -334,6 +343,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_ENDPOINTS_POST" => config.endpoints_post.clone(),
 		"REDLIB_ENDPOINTS_COMMENTS" => config.endpoints_comments.clone(),
 		"REDLIB_ENDPOINTS_LISTING" => config.endpoints_listing.clone(),
+		"REDLIB_ENDPOINTS_ALL" => config.endpoints_all.clone(),
 		"REDLIB_ENDPOINTS_SUBREDDIT" => config.endpoints_subreddit.clone(),
 		"REDLIB_ENDPOINTS_USER" => config.endpoints_user.clone(),
 		"REDLIB_ENDPOINTS_SEARCH" => config.endpoints_search.clone(),
@@ -555,6 +565,18 @@ mod tests {
 	#[sealed_test(env = [("REDLIB_SOURCE_URL", "https://example.com")])]
 	fn test_source_url() {
 		assert_eq!(get_setting("REDLIB_SOURCE_URL"), Some("https://example.com".into()));
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_GQL_FEED_REQUESTS", "3")])]
+	fn test_gql_feed_requests() {
+		assert_eq!(crate::utils::gql_feed_requests(), 3);
+	}
+
+	#[test]
+	#[sealed_test(env = [("REDLIB_GQL_FEED_REQUESTS", "0")])]
+	fn test_gql_feed_requests_falls_back_to_the_default() {
+		assert_eq!(crate::utils::gql_feed_requests(), 2);
 	}
 
 	#[test]

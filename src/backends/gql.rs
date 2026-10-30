@@ -8,7 +8,7 @@
 use super::{json as reddit_json, Backend, Failure, Fetch, Kind};
 use crate::client::{CLIENT, OAUTH_CLIENT};
 use crate::oauth::force_refresh_token;
-use crate::utils::{enable_gql, format_url, param};
+use crate::utils::{enable_gql, format_url, gql_feed_requests, param};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
 use log::{debug, warn};
@@ -366,24 +366,48 @@ async fn posts_by_ids(ids: Vec<&str>) -> Result<Value, String> {
 async fn all(path: &str, sort: &str) -> Result<Value, String> {
 	let mut variables = feed_variables(path, sort);
 	variables["time"] = variables["range"].take();
+	let limit = variables["pageSize"].take().as_u64().unwrap_or(25) as usize;
 	if let Some(variables) = variables.as_object_mut() {
 		variables.remove("range");
 		variables.remove("pageSize");
 	}
-	let response = query("AllFeedSdui", ALL_FEED_HASH, &variables).await?;
-	let elements = &response["data"]["allV3"]["elements"];
-	let ids: Vec<&str> = elements["edges"]
+	let mut ids = Vec::new();
+	let mut next = None;
+	// The first page has ~8 posts whatever the size; later ones fill it
+	for _ in 0..gql_feed_requests() {
+		let response = query("AllFeedSdui", ALL_FEED_HASH, &variables).await?;
+		next = take_all_page(&mut ids, &response["data"]["allV3"]["elements"], limit);
+		match &next {
+			Some(after) if ids.len() < limit => variables["after"] = STANDARD.encode(after).into(),
+			_ => break,
+		}
+	}
+	let mut posts = Box::pin(posts_by_ids(ids.iter().map(String::as_str).collect())).await?;
+	posts["data"]["after"] = next.into();
+	Ok(posts)
+}
+
+/// Adds the post IDs of an r/all page to `ids`, up to `limit`. Returns the
+/// JSON API `after` of the last post taken, `None` at the end of the feed.
+fn take_all_page(ids: &mut Vec<String>, elements: &Value, limit: usize) -> Option<String> {
+	let page = elements["edges"]
 		.as_array()
 		.into_iter()
 		.flatten()
 		// Ads are posts too, marked by their `adPayload`
 		.filter(|edge| edge["node"]["adPayload"].is_null())
 		.filter_map(|edge| edge["node"]["groupId"].as_str())
-		.filter(|id| id.starts_with("t3_"))
-		.collect();
-	let mut posts = Box::pin(posts_by_ids(ids)).await?;
-	posts["data"]["after"] = after(elements).into();
-	Ok(posts)
+		.filter(|id| id.starts_with("t3_"));
+	for id in page {
+		if ids.len() == limit {
+			// Feed cursors are post fullnames, so the next page starts here
+			return ids.last().cloned();
+		}
+		if !ids.iter().any(|i| i == id) {
+			ids.push(id.to_string());
+		}
+	}
+	after(elements)
 }
 
 /// Some feeds, like popular, only send `displayName`.
@@ -1143,6 +1167,23 @@ mod tests {
 		let gallery = crate::utils::parse_post(&posts[1]).await;
 		assert_eq!((gallery.post_type.as_str(), gallery.gallery.len()), ("gallery", 2));
 		assert_eq!(posts[2]["data"]["crosspost_parent_list"][0]["subreddit"], "gpui");
+	}
+
+	#[test]
+	fn test_all_pages_fill_the_limit() {
+		let page = |ids: &[&str], end: &str| {
+			let mut edges: Vec<Value> = ids.iter().map(|id| json_value!({ "node": { "groupId": id, "adPayload": null } })).collect();
+			edges.insert(1, json_value!({ "node": { "groupId": "t3_ad", "adPayload": {} } }));
+			json_value!({ "edges": edges, "pageInfo": { "endCursor": STANDARD.encode(end) } })
+		};
+		let mut ids = Vec::new();
+		assert_eq!(take_all_page(&mut ids, &page(&["t3_a", "t3_b", "t3_c"], "t3_c"), 4).as_deref(), Some("t3_c"));
+		// The second page repeats `t3_c` and has more than needed
+		assert_eq!(take_all_page(&mut ids, &page(&["t3_c", "t3_d", "t3_e"], "t3_e"), 4).as_deref(), Some("t3_d"));
+		assert_eq!(ids, ["t3_a", "t3_b", "t3_c", "t3_d"]);
+
+		let end = json_value!({ "edges": [], "pageInfo": { "hasNextPage": false } });
+		assert_eq!(take_all_page(&mut ids, &end, 10), None);
 	}
 
 	#[test]
