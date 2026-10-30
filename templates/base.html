@@ -31,8 +31,8 @@
             {% endif %}
             <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
             <link rel="stylesheet" type="text/css" href="/style.css?v={{ env!("BUILD_TIME") }}">
-            <script src="/static/keyboardcommands.js"></script>
-            <script src="/autoplayVisible.js" defer></script>
+            <script src="/static/keyboardcommands.js?v={{ crate::utils::short_git_hash() }}"></script>
+            <script src="/autoplayVisible.js?v={{ crate::utils::short_git_hash() }}" defer></script>
 		<!-- Video quality -->
             <div id="video_quality" data-value="{{ prefs.video_quality }}"></div>
         {% endblock %}

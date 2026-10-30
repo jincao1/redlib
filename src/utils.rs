@@ -32,13 +32,14 @@ use url::Url;
 /// release code.
 #[macro_export]
 macro_rules! dbg_msg {
+	// `cfg!` rather than `#[cfg]`, so release builds still see the value used
 	($x:expr) => {
-		#[cfg(debug_assertions)]
-		eprintln!("{}:{}: {}", file!(), line!(), $x.to_string())
+		if cfg!(debug_assertions) {
+			eprintln!("{}:{}: {}", file!(), line!(), $x.to_string())
+		}
 	};
 
 	($($x:expr),+) => {
-		#[cfg(debug_assertions)]
 		dbg_msg!(format!($($x),+))
 	};
 }
@@ -1595,6 +1596,11 @@ pub fn scrape_comment_prefetch() -> usize {
 	get_setting("REDLIB_SCRAPE_COMMENT_PREFETCH").and_then(|val| val.parse().ok()).unwrap_or(0)
 }
 
+/// Feed requests the gql backend makes to fill one r/all page, at least 1.
+pub fn gql_feed_requests() -> usize {
+	get_setting("REDLIB_GQL_FEED_REQUESTS").and_then(|val| val.parse().ok()).filter(|&n| n > 0).unwrap_or(2)
+}
+
 /// Returns true if the config/env variable `REDLIB_ROBOTS_DISABLE_INDEXING` carries the
 /// value `on`.
 ///
@@ -1910,7 +1916,7 @@ fn build_media_html(post: &Post) -> String {
 fn get_rss_image(post: &Post) -> Option<Enclosure> {
 	let image_url = match post.post_type.as_str() {
 		"image" => Some(to_absolute_url(&post.media.url)),
-		"gallery" => post.gallery.get(0).map(|media| to_absolute_url(&media.url)),
+		"gallery" => post.gallery.first().map(|media| to_absolute_url(&media.url)),
 		"gif" | "video" => Some(to_absolute_url(&post.media.poster)),
 		_ => None,
 	};

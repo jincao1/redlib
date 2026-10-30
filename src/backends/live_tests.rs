@@ -5,7 +5,7 @@
 //! pass without doing anything (CI sets it from a repository secret, which
 //! pull requests from forks don't get).
 
-use super::{cookied_json::CookiedJson, gql::Gql, Backend};
+use super::{cookied_json::CookiedJson, gql::Gql, json::Json, Backend};
 use crate::client::block_on_shared;
 use serde_json::Value;
 
@@ -92,9 +92,22 @@ fn test_gql_subreddit_feed() {
 }
 
 #[test]
-fn test_gql_popular_and_all() {
+fn test_gql_popular() {
 	assert_posts(&get(&Gql, "/r/popular/hot.json?raw_json=1"), "gql popular");
+}
+
+/// `AllFeedSdui` is gone from the app; this fails once Reddit drops its hash.
+#[test]
+fn test_gql_all() {
 	assert_posts(&get(&Gql, "/r/all/hot.json?raw_json=1"), "gql all");
+}
+
+/// Fails once Reddit closes the `r/all+` gap as well.
+#[test]
+fn test_json_all() {
+	let page = get(&Json, "/r/all/new.json?raw_json=1");
+	assert_posts(&page, "json all");
+	assert!(children(&page, "json all").len() >= 20, "json all: page size ignored");
 }
 
 #[test]
