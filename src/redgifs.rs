@@ -37,7 +37,7 @@ pub async fn handler(req: Request<Body>) -> Result<Response<Body>, String> {
 }
 
 async fn fetch_video_url(redgifs_url: &str) -> Result<String, String> {
-	let video_id = redgifs_url.split('/').last().and_then(|s| s.split('?').next()).ok_or("Invalid RedGifs URL")?;
+	let video_id = redgifs_url.split('/').next_back().and_then(|s| s.split('?').next()).ok_or("Invalid RedGifs URL")?;
 
 	let token = get_token().await?;
 	let api_url = format!("https://api.redgifs.com/v2/gifs/{}?views=yes", video_id);

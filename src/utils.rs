@@ -1914,7 +1914,7 @@ fn build_media_html(post: &Post) -> String {
 fn get_rss_image(post: &Post) -> Option<Enclosure> {
 	let image_url = match post.post_type.as_str() {
 		"image" => Some(to_absolute_url(&post.media.url)),
-		"gallery" => post.gallery.get(0).map(|media| to_absolute_url(&media.url)),
+		"gallery" => post.gallery.first().map(|media| to_absolute_url(&media.url)),
 		"gif" | "video" => Some(to_absolute_url(&post.media.poster)),
 		_ => None,
 	};
