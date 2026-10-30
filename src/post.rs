@@ -264,6 +264,7 @@ fn gone_comment(author: &str, body: &str) -> Option<&'static str> {
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_comment(
 	comment: &serde_json::Value,
 	data: &serde_json::Value,
