@@ -110,7 +110,7 @@ While running, Redlib reorders the listed backends by how often each worked in t
 | `POST`       | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `COMMENTS`   | ⚠️ blocked | ✅             | ✅    | ✅        | ✅                     | gql, cookied-json, obscura-cookied-json, scraped, json |
 | `LISTING`    | ✅         | ✅             | ⚠️¹   | ❌        | ✅                     | json, gql, cookied-json, obscura-cookied-json |
-| `ALL`        | ⚠️ blocked | ⚠️ blocked     | ⚠️²   | ❌        | ⚠️ blocked             | gql |
+| `ALL`        | ✅²        | ✅²            | ⚠️³   | ❌        | ✅²                    | json, gql, cookied-json, obscura-cookied-json |
 | `SUBREDDIT`  | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
 | `USER`       | ⚠️ blocked | ✅             | ✅    | ❌        | ✅                     | gql, cookied-json, obscura-cookied-json |
 | `SEARCH`     | ✅         | ✅             | ✅    | ❌        | ✅                     | gql, json, cookied-json, obscura-cookied-json |
@@ -119,7 +119,9 @@ While running, Redlib reorders the listed backends by how often each worked in t
 
 ¹ Skipped without a request for feeds of several subreddits (`r/a+b`, the front page of your subscriptions).
 
-² Reddit [retired r/all](https://www.reddit.com/r/reddithelp/comments/1rfmh8h/a_helpful_link_to_rall/); only the old GraphQL feed still serves it, with about 8 posts per request, so a page takes up to `REDLIB_GQL_FEED_REQUESTS` requests.
+² Reddit [retired r/all](https://www.reddit.com/r/reddithelp/comments/1rfmh8h/a_helpful_link_to_rall/) and answers `/r/all.json` with 403, but still serves the same feed as `/r/all+.json`, which is requested instead.
+
+³ The old GraphQL feed sends about 8 posts per request, so a page takes up to `REDLIB_GQL_FEED_REQUESTS` requests.
 
 </details>
 

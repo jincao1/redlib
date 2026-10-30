@@ -83,7 +83,7 @@ pub enum Kind {
 	Comments,
 	/// Posts of a subreddit, popular and the front page.
 	Listing,
-	/// r/all, which Reddit only still serves through the app's old GraphQL feed.
+	/// r/all, which Reddit retired; JSON still serves it as `r/all+`.
 	All,
 	/// Subreddit info (`/r/<sub>/about`).
 	Subreddit,
@@ -119,8 +119,7 @@ impl Kind {
 			Self::User => "gql, cookied-json, obscura-cookied-json",
 			Self::Comments => "gql, cookied-json, obscura-cookied-json, scraped, json",
 			Self::Listing => "json, gql, cookied-json, obscura-cookied-json",
-			// JSON answers 403 with and without a session
-			Self::All => "gql",
+			Self::All => "json, gql, cookied-json, obscura-cookied-json",
 			Self::Wiki | Self::Duplicates => "json, cookied-json, obscura-cookied-json",
 		}
 	}
@@ -136,6 +135,15 @@ impl Kind {
 			Self::Search => "search",
 			Self::Wiki => "wiki",
 			Self::Duplicates => "duplicates",
+		}
+	}
+
+	/// The JSON API path for `path`: Reddit answers `/r/all` with 403 but
+	/// still serves the same feed as the "multireddit" `/r/all+`.
+	pub fn json_path(path: &str) -> std::borrow::Cow<'_, str> {
+		match path.strip_prefix("/r/all") {
+			Some(rest) if Self::of(path) == Self::All => format!("/r/all+{rest}").into(),
+			_ => path.into(),
 		}
 	}
 
@@ -428,6 +436,15 @@ mod tests {
 	}
 
 	#[test]
+	fn test_json_path() {
+		assert_eq!(Kind::json_path("/r/all/new.json?raw_json=1"), "/r/all+/new.json?raw_json=1");
+		assert_eq!(Kind::json_path("/r/all.json?raw_json=1"), "/r/all+.json?raw_json=1");
+		for path in ["/r/allthingsdnd/hot.json", "/r/all/search.json?q=rust", "/r/all/about.json", "/r/rust/hot.json"] {
+			assert_eq!(Kind::json_path(path), path);
+		}
+	}
+
+	#[test]
 	fn test_cursor_owner() {
 		assert_eq!(cursor_owner("/r/rust/comments/abc.json?sort=top&raw_json=1"), None);
 		assert_eq!(cursor_owner("/r/rust/comments/abc.json?more_cursor=xyz&more_query=gql&raw_json=1"), Some("gql"));
@@ -456,7 +473,7 @@ mod tests {
 		assert_eq!(names(&order(Kind::Comments)), in_build(&["gql", "cookied-json", "obscura-cookied-json", "scraped", "json"]));
 		assert_eq!(names(&order(Kind::Listing)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
 		assert_eq!(names(&order(Kind::Wiki)), in_build(&["json", "cookied-json", "obscura-cookied-json"]));
-		assert_eq!(names(&order(Kind::All)), ["gql"]);
+		assert_eq!(names(&order(Kind::All)), in_build(&["json", "gql", "cookied-json", "obscura-cookied-json"]));
 	}
 
 	#[test]
@@ -500,6 +517,7 @@ mod tests {
 			("/r/rust+linux/new.json", Kind::Listing),
 			("/.json?raw_json=1", Kind::Listing),
 			("/r/all/new.json?raw_json=1", Kind::All),
+			("/r/all.json", Kind::All),
 			("/r/all/search.json?q=rust", Kind::Search),
 			("/r/rust/about.json?raw_json=1", Kind::Subreddit),
 			("/search.json?q=rust", Kind::Search),
