@@ -2,6 +2,8 @@
 //! it. RAM only and zstd-compressed, bounded by `REDLIB_STALE_CACHE_MB` and
 //! `REDLIB_STALE_CACHE_MAX_AGE` (minutes).
 
+use std::cell::Cell;
+use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -98,7 +100,7 @@ pub fn store(path: &str, quarantine: bool, json: &Value, backend: &'static str) 
 	}
 }
 
-/// The last good response for `path`.
+/// The last good response for `path`, marking the current page as stale.
 pub fn load(path: &str, quarantine: bool) -> Option<(Value, &'static str)> {
 	let now = Instant::now();
 	let (body, backend, age) = {
@@ -108,7 +110,27 @@ pub fn load(path: &str, quarantine: bool) -> Option<(Value, &'static str)> {
 	};
 	let json = serde_json::from_slice(&zstd::stream::decode_all(body.as_slice()).ok()?).ok()?;
 	warn!("Serving {path} from the stale cache, {}s old", age.as_secs());
+	let _ = SERVED_AGE.try_with(|served| served.set(Some(served.get().map_or(age, |a| a.max(age)))));
 	Some((json, backend))
+}
+
+tokio::task_local! {
+	static SERVED_AGE: Cell<Option<Duration>>;
+}
+
+/// Runs a request handler, so pages it renders can tell they used stale data.
+pub async fn track<F: Future>(handler: F) -> F::Output {
+	SERVED_AGE.scope(Cell::new(None), handler).await
+}
+
+/// How old the oldest stale response on the current page is, e.g. "12 min ago".
+pub fn served_age() -> Option<String> {
+	let age = SERVED_AGE.try_with(Cell::get).ok().flatten()?.as_secs() / 60;
+	Some(match age {
+		0 => "less than a minute ago".to_string(),
+		1..=59 => format!("{age} min ago"),
+		_ => format!("{} h ago", age / 60),
+	})
 }
 
 #[cfg(test)]
@@ -157,5 +179,22 @@ mod tests {
 		store.put(("a".into(), true), entry(10, now));
 		store.put(("a".into(), false), entry(10, now));
 		assert_eq!(store.bytes, 2 * (10 + 1 + ENTRY_OVERHEAD));
+	}
+
+	#[test]
+	fn test_stale_responses_mark_the_page() {
+		let json = serde_json::json!({ "data": { "children": [1, 2, 3] } });
+		let page = block(track(async {
+			assert_eq!(served_age(), None);
+			store("/r/stale_test", false, &json, "gql");
+			let loaded = load("/r/stale_test", false);
+			(loaded, served_age())
+		}));
+		assert_eq!(page, (Some((json, "gql")), Some("less than a minute ago".to_string())));
+		assert_eq!(block(track(async { served_age() })), None);
+	}
+
+	fn block<F: Future>(future: F) -> F::Output {
+		tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(future)
 	}
 }
