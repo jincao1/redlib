@@ -17,6 +17,7 @@ mod live_tests;
 pub mod obscura;
 mod score;
 pub mod scraped;
+pub mod stale;
 
 use crate::config::get_setting;
 use crate::oauth::force_refresh_token;
@@ -297,8 +298,13 @@ fn cursor_owner(path: &str) -> Option<&'static str> {
 }
 
 /// Fetches `path` from the first backend that serves it, and names that backend.
+/// When Reddit refuses or fails, the last good response is served instead.
 pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static str), String> {
-	fetch_fresh(path, quarantine).await.map_err(|(msg, _)| msg)
+	match fetch_fresh(path.clone(), quarantine).await {
+		Ok(found) => Ok(found),
+		Err((msg, true)) => stale::load(&path, quarantine).ok_or(msg),
+		Err((msg, false)) => Err(msg),
+	}
 }
 
 /// `fetch` without the stale fallback; the error says whether Reddit failed
@@ -320,7 +326,10 @@ async fn fetch_fresh(path: String, quarantine: bool) -> Result<(Value, &'static 
 			ranking(kind).record(backend.name(), outcome, Instant::now());
 		}
 		let error = match result {
-			Ok(json) => return Ok((json, backend.name())),
+			Ok(json) => {
+				stale::store(&path, quarantine, &json, backend.name());
+				return Ok((json, backend.name()));
+			}
 			Err(Failure::Unsupported) => {
 				debug!("{} can't serve {path}", backend.name());
 				continue;
