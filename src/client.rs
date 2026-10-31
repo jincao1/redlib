@@ -12,6 +12,7 @@ use hyper::{header, Request as HyperRequest, Response as HyperResponse};
 use log::{info, warn};
 use percent_encoding::{percent_encode, CONTROLS};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
@@ -34,6 +35,12 @@ const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
 /// Configuration variable holding the `Cookie` header of a logged-in
 /// reddit.com session.
 const REDDIT_COOKIE_SETTING: &str = "REDLIB_REDDIT_COOKIE";
+
+/// File with more sessions, one per line, so they can change without a restart.
+const REDDIT_COOKIE_FILE_SETTING: &str = "REDLIB_REDDIT_COOKIE_FILE";
+
+/// How often the session file is checked for changes.
+const REDDIT_COOKIE_FILE_RECHECK_SECS: u64 = 10;
 
 /// Upper bound for the configured cookie. A browser sends a few kilobytes at
 /// most; anything larger is a configuration mistake.
@@ -325,25 +332,115 @@ pub(crate) fn reroll_client(reason: &str) -> bool {
 /// Reddit stopped serving `.json` to logged-out clients: it answers with an
 /// HTML block page and HTTP 403. A real session cookie makes the same request
 /// return JSON, which is the only way to keep post and comment pages working.
-/// Several sessions are separated by `|` and used in turn.
-pub(crate) fn session_cookies() -> Vec<(usize, String)> {
-	let Some(raw) = get_setting(REDDIT_COOKIE_SETTING) else {
-		return Vec::new();
-	};
-
-	raw
+/// Several sessions are separated by `|` and used in turn, followed by those
+/// in the session file. Each comes with a label for the logs, which must never
+/// show the cookie itself.
+pub(crate) fn session_cookies() -> Vec<(String, String)> {
+	let from_setting = get_setting(REDDIT_COOKIE_SETTING)
+		.unwrap_or_default()
 		.split('|')
 		.enumerate()
+		.map(|(i, part)| (format!("#{}", i + 1), part.to_string()))
+		.collect::<Vec<_>>();
+	let from_file = get_setting(REDDIT_COOKIE_FILE_SETTING)
+		.map(|path| COOKIE_FILE.lock().map(|mut file| file.sessions(Path::new(&path), now_secs())).unwrap_or_default())
+		.unwrap_or_default();
+
+	let mut seen = std::collections::HashSet::new();
+	from_setting
+		.into_iter()
+		.chain(from_file)
 		.filter(|(_, part)| !part.trim().is_empty())
-		.filter_map(|(i, part)| {
-			let cookie = sanitize_cookie(part);
-			if cookie.is_none() {
-				// The value is a credential, so it must not be logged.
-				warn!("Ignoring session #{} in {REDDIT_COOKIE_SETTING}: not a valid Cookie header", i + 1);
+		.filter_map(|(label, part)| match session_cookie(&part) {
+			Ok(cookie) => seen.insert(cookie.clone()).then_some((label, cookie)),
+			Err(reason) => {
+				warn_once(format!("Ignoring session {label}: {reason}"));
+				None
 			}
-			cookie.map(|cookie| (i + 1, cookie))
 		})
 		.collect()
+}
+
+static COOKIE_FILE: LazyLock<std::sync::Mutex<CookieFile>> = LazyLock::new(Default::default);
+
+/// The lines of the session file as last read, so a broken edit keeps the
+/// sessions that worked.
+#[derive(Default)]
+struct CookieFile {
+	checked: Option<u64>,
+	version: Option<(SystemTime, u64)>,
+	sessions: Vec<(String, String)>,
+}
+
+impl CookieFile {
+	fn sessions(&mut self, path: &Path, now: u64) -> Vec<(String, String)> {
+		if self.checked.is_none_or(|checked| now.saturating_sub(checked) >= REDDIT_COOKIE_FILE_RECHECK_SECS) {
+			self.checked = Some(now);
+			self.reload(path);
+		}
+		self.sessions.clone()
+	}
+
+	fn reload(&mut self, path: &Path) {
+		let version = std::fs::metadata(path).and_then(|meta| Ok((meta.modified()?, meta.len())));
+		if version.as_ref().ok() == self.version.as_ref() {
+			return;
+		}
+		match version.and_then(|version| Ok((version, std::fs::read_to_string(path)?))) {
+			Ok((version, text)) => {
+				self.version = Some(version);
+				self.sessions = cookie_file_lines(&text);
+				info!("Read {} session line(s) from {REDDIT_COOKIE_FILE_SETTING}", self.sessions.len());
+			}
+			Err(e) => warn_once(format!(
+				"Couldn't read {REDDIT_COOKIE_FILE_SETTING} ({e}), keeping the {} session line(s) read last",
+				self.sessions.len()
+			)),
+		}
+	}
+}
+
+/// The sessions in a session file: one per line, `#` starts a comment line.
+fn cookie_file_lines(text: &str) -> Vec<(String, String)> {
+	text
+		.lines()
+		.enumerate()
+		.map(|(i, line)| (format!("file line {}", i + 1), line.trim().to_string()))
+		.filter(|(_, line)| !line.is_empty() && !line.starts_with('#'))
+		.collect()
+}
+
+/// The `Cookie` header for a configured session, or why it can't be used.
+///
+/// Only `reddit_session` is needed, so a bare value is taken as one. An
+/// expired one is skipped before Reddit refuses it, since every refusal
+/// counts against the browser emulation.
+fn session_cookie(raw: &str) -> Result<String, &'static str> {
+	let cookie = sanitize_cookie(raw).ok_or("not a valid Cookie header")?;
+	let cookie = if cookie.contains('=') { cookie } else { format!("reddit_session={cookie}") };
+	let session = cookie
+		.split(';')
+		.find_map(|pair| pair.trim().strip_prefix("reddit_session="))
+		.ok_or("no reddit_session cookie")?;
+	if jwt_expiry(session).is_some_and(|expiry| expiry <= now_secs()) {
+		return Err("its reddit_session has expired");
+	}
+	Ok(cookie)
+}
+
+/// The `exp` claim of a JWT, if `token` is one.
+fn jwt_expiry(token: &str) -> Option<u64> {
+	use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+	let claims: serde_json::Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?).ok()?;
+	claims["exp"].as_f64().map(|exp| exp as u64)
+}
+
+/// Logs `message` the first time only: the sessions are read on every request.
+fn warn_once(message: String) {
+	static SEEN: LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> = LazyLock::new(Default::default);
+	if SEEN.lock().is_ok_and(|mut seen| seen.insert(message.clone())) {
+		warn!("{message}");
+	}
 }
 
 /// Trims and validates a `Cookie` header from configuration.
@@ -689,7 +786,7 @@ mod tests {
 	#[test]
 	#[sealed_test(env = [("REDLIB_REDDIT_COOKIE", "reddit_session=abc; token_v2=def")])]
 	fn test_session_cookie_comes_from_the_environment() {
-		assert_eq!(session_cookies(), vec![(1, "reddit_session=abc; token_v2=def".to_string())]);
+		assert_eq!(session_cookies(), vec![("#1".to_string(), "reddit_session=abc; token_v2=def".to_string())]);
 	}
 
 	#[test]
@@ -699,7 +796,98 @@ mod tests {
 		// numbers keep pointing at the position in the setting.
 		assert_eq!(
 			session_cookies(),
-			vec![(1, "reddit_session=a; token_v2=b".to_string()), (4, "reddit_session=d".to_string())]
+			vec![
+				("#1".to_string(), "reddit_session=a; token_v2=b".to_string()),
+				("#4".to_string(), "reddit_session=d".to_string())
+			]
+		);
+	}
+
+	fn jwt(exp: u64) -> String {
+		use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+		format!("eyJhbGciOiJSUzI1NiJ9.{}.sig", URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{exp}}}")))
+	}
+
+	#[test]
+	fn test_session_cookie_needs_only_reddit_session() {
+		assert_eq!(session_cookie(" abc ").as_deref(), Ok("reddit_session=abc"));
+		assert_eq!(session_cookie("reddit_session=abc").as_deref(), Ok("reddit_session=abc"));
+		assert_eq!(session_cookie("token_v2=abc"), Err("no reddit_session cookie"));
+	}
+
+	#[test]
+	fn test_sessions_in_the_old_documented_form_still_work() {
+		// `reddit_session=...;token_v2=...` as the old docs asked for, with a
+		// long expired token_v2: sent exactly as before
+		let old = format!("reddit_session={};token_v2={}", jwt(now_secs() + 3600), jwt(1000));
+		assert_eq!(session_cookie(&format!(" {old} ")), Ok(old));
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_old_session_setting_keeps_every_session() {
+		let old = |n: u64| format!("reddit_session={};token_v2={}", jwt(now_secs() + n), jwt(1000));
+		std::env::set_var("REDLIB_REDDIT_COOKIE", format!("{} | {}|{}", old(1000), old(2000), old(3000)));
+		assert_eq!(
+			session_cookies(),
+			vec![("#1".to_string(), old(1000)), ("#2".to_string(), old(2000)), ("#3".to_string(), old(3000))]
+		);
+	}
+
+	#[test]
+	fn test_expired_session_cookie_is_skipped() {
+		let valid = jwt(now_secs() + 3600);
+		assert_eq!(session_cookie(&valid), Ok(format!("reddit_session={valid}")));
+		assert_eq!(
+			session_cookie(&format!("token_v2=x; reddit_session={}", jwt(now_secs() - 1))),
+			Err("its reddit_session has expired")
+		);
+		// Older sessions aren't JWTs; Reddit decides about those
+		assert!(session_cookie("reddit_session=123%2C2024-01-01T00%3A00%3A00%2Cabc").is_ok());
+	}
+
+	#[test]
+	fn test_session_file_skips_comments_and_blank_lines() {
+		let text = "# Account 1\nreddit_session=a\n\n  # Account 2\n  b  \n";
+		assert_eq!(
+			cookie_file_lines(text),
+			vec![("file line 2".to_string(), "reddit_session=a".to_string()), ("file line 5".to_string(), "b".to_string())]
+		);
+	}
+
+	#[test]
+	fn test_session_file_is_reread_when_it_changes() {
+		let dir = std::env::temp_dir().join(format!("redlib-sessions-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("sessions.txt");
+		let mut file = CookieFile::default();
+		let names = |sessions: Vec<(String, String)>| sessions.into_iter().map(|(_, cookie)| cookie).collect::<Vec<_>>();
+
+		std::fs::write(&path, "a\n").unwrap();
+		assert_eq!(names(file.sessions(&path, 100)), ["a"]);
+		// Not checked again before the interval is up
+		std::fs::write(&path, "a\nb\n").unwrap();
+		assert_eq!(names(file.sessions(&path, 105)), ["a"]);
+		assert_eq!(names(file.sessions(&path, 110)), ["a", "b"]);
+		// A file that went missing keeps the sessions read last
+		std::fs::remove_file(&path).unwrap();
+		assert_eq!(names(file.sessions(&path, 120)), ["a", "b"]);
+		std::fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	#[sealed_test]
+	fn test_sessions_come_from_the_setting_and_the_file() {
+		std::fs::write("sessions.txt", "# throwaway\nreddit_session=b\nreddit_session=a\n").unwrap();
+		std::env::set_var("REDLIB_REDDIT_COOKIE", "reddit_session=a");
+		std::env::set_var("REDLIB_REDDIT_COOKIE_FILE", "sessions.txt");
+		// The duplicate in the file is dropped
+		assert_eq!(
+			session_cookies(),
+			vec![
+				("#1".to_string(), "reddit_session=a".to_string()),
+				("file line 2".to_string(), "reddit_session=b".to_string())
+			]
 		);
 	}
 

@@ -65,7 +65,10 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENDPOINTS`, `ENDPOINTS_<KIND>` | List      | per kind                               | Which backends load Reddit data, in which order. See [Backend order](#backend-order). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
 | `GQL_FEED_REQUESTS`       | Integer         | `2`                                    | Requests the `gql` backend makes to fill one r/all page. Reddit sends only about 8 posts for the first. |
-| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session=...;token_v2=...` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE`           | String          | (empty)                                | Logged-in `reddit_session` cookies, `|`-separated, for the `cookied-json` and `obscura-cookied-json` backends. Use throwaway accounts. See [Reddit session](#reddit-session). |
+| `REDDIT_COOKIE_FILE`      | String          | (empty)                                | File with more sessions, one per line, reread while running. See [Reddit session](#reddit-session). |
+| `STALE_CACHE_MB`          | Integer         | `32`                                   | RAM for the last good copy of each page, served while Reddit refuses or fails. `0` turns it off. See [Stale cache](#stale-cache). |
+| `STALE_CACHE_MAX_AGE`     | Integer         | `360`                                  | Minutes a copy stays usable for the stale cache. |
 | `LISTEN_PORT`             | Integer         | `8080`                                 | Port to listen on. `-p` and the `PORT` environment variable take precedence. |
 | `LISTEN_ADDRESS`          | String          | `[::]`                                 | Address to listen on. `-a` takes precedence. |
 | `HSTS`                    | Integer         | `604800`                               | `max-age` of the HSTS header in seconds. `-H` takes precedence. |
@@ -74,15 +77,35 @@ Assign a default value for each instance-specific setting by passing environment
 
 ### Reddit session
 
-Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` and `token_v2` cookies of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookies are needed. Separate several sessions with `|` to rotate between them:
+Reddit only serves post pages to logged-in sessions. Set `REDLIB_REDDIT_COOKIE` to the `reddit_session` cookie of a logged-in reddit.com browser (DevTools → Application → Cookies); no other cookie is needed. Separate several sessions with `|` to rotate between them:
 
 ```bash
-REDLIB_REDDIT_COOKIE="reddit_session=...;token_v2=...|reddit_session=...;token_v2=..."
+REDLIB_REDDIT_COOKIE="reddit_session=...|reddit_session=..."
 ```
+
+The `reddit_session=` prefix is optional. A whole `Cookie` header works too, as long as it has `reddit_session` in it. Sessions whose `reddit_session` has expired (it lasts about six months) are skipped with a warning in the log.
+
+To add or remove sessions without a restart, put them in a file and point `REDLIB_REDDIT_COOKIE_FILE` at it. Each line is one session in the same form, lines starting with `#` are comments. Redlib checks the file for changes every 10 seconds; if it can't be read, the sessions read last stay in use. Both settings can be combined.
+
+```bash
+# /etc/redlib/sessions.txt
+# throwaway 1
+reddit_session=...
+# throwaway 2
+reddit_session=...
+```
+
+With Docker, mount the file read-only, e.g. `-v ./sessions.txt:/sessions.txt:ro` with `REDLIB_REDDIT_COOKIE_FILE=/sessions.txt`. Mount its directory instead if your editor replaces the file when saving: a single-file mount keeps showing the old one.
 
 **Use a throwaway account**, never your main one: the instance's traffic runs through it and Reddit may ban it. Keep the value secret. Pressing "Log out" on reddit.com ends the session.
 
 The `ghcr.io/nachtalb/redlib:latest-obscura` image (amd64 only, or `cargo build --release --features obscura`) can also send a session's requests through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) headless browser: the `obscura-cookied-json` backend. `latest` and default builds don't have it.
+
+### Stale cache
+
+Pages are cached for 30 seconds as before. Besides that, Redlib keeps the last good copy of each Reddit response in RAM, zstd-compressed, least recently used dropped first once `REDLIB_STALE_CACHE_MB` is full. A copy is only used when every backend fails because Reddit blocks, rate limits, errors or doesn't answer; the page then shows a bar saying how old it is. Real answers like a deleted post or a private subreddit are never covered up. Nothing is written to disk, so a restart empties it.
+
+A listing page takes about 20 KB, a post with its comments 5–10 KB, so the default fits a few thousand pages.
 
 ### Scrape fallback
 

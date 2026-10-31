@@ -405,7 +405,7 @@ impl Post {
 			let awards = Awards::parse(&data["all_awardings"]);
 
 			// selftext_html is set for text posts when browsing.
-			let mut body = rewrite_urls(&val(post, "selftext_html"));
+			let mut body = rewrite_urls(&body_html(post, "selftext", "selftext_html"));
 			if body.is_empty() {
 				body = rewrite_urls(&val(post, "body_html"));
 			}
@@ -951,15 +951,7 @@ pub async fn parse_post(post: &Value) -> Post {
 			get_setting("REDLIB_PUSHSHIFT_FRONTEND").unwrap_or_else(|| String::from(crate::config::DEFAULT_PUSHSHIFT_FRONTEND)),
 		)
 	} else {
-		let selftext = val(post, "selftext");
-		if selftext.contains("```") {
-			let mut html_output = String::new();
-			let parser = pulldown_cmark::Parser::new(&selftext);
-			pulldown_cmark::html::push_html(&mut html_output, parser);
-			rewrite_urls(&html_output)
-		} else {
-			rewrite_urls(&val(post, "selftext_html"))
-		}
+		rewrite_urls(&body_html(post, "selftext", "selftext_html"))
 	};
 
 	// Build a post using data parsed from Reddit post API
@@ -1261,6 +1253,73 @@ static REDLIB_PREVIEW_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(
 static REDLIB_PREVIEW_TEXT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r">(.*?)</a>").unwrap());
 
 /// Rewrite Reddit links to Redlib in body of text
+/// The HTML of a post or comment body. Reddit's `*_html` comes from its old
+/// renderer, which doesn't know fenced code blocks, so bodies with one are
+/// rendered from their markdown instead.
+pub fn body_html(item: &Value, markdown_key: &str, html_key: &str) -> String {
+	let markdown = val(item, markdown_key);
+	if markdown.contains("```") {
+		markdown_html(&markdown)
+	} else {
+		val(item, html_key)
+	}
+}
+
+/// Renders Reddit markdown, with syntax highlighting in code blocks.
+pub fn markdown_html(markdown: &str) -> String {
+	use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+	let mut code: Option<(String, String)> = None;
+	let events = Parser::new_ext(markdown, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).filter_map(|event| match event {
+		Event::Start(Tag::CodeBlock(kind)) => {
+			let lang = match kind {
+				CodeBlockKind::Fenced(info) => info.split_whitespace().next().unwrap_or_default().to_string(),
+				CodeBlockKind::Indented => String::new(),
+			};
+			code = Some((lang, String::new()));
+			None
+		}
+		Event::Text(text) if code.is_some() => {
+			if let Some((_, buf)) = &mut code {
+				buf.push_str(&text);
+			}
+			None
+		}
+		Event::End(TagEnd::CodeBlock) => code.take().map(|(lang, text)| Event::Html(highlight(&lang, &text).into())),
+		// Reddit shows HTML in markdown as text
+		Event::Html(html) | Event::InlineHtml(html) => Some(Event::Text(html)),
+		event => Some(event),
+	});
+	let mut html = String::from("<div class=\"md\">");
+	pulldown_cmark::html::push_html(&mut html, events);
+	html.push_str("</div>");
+	html
+}
+
+/// Above this, a code block isn't highlighted: the regexes are too slow for it.
+const HIGHLIGHT_MAX_LEN: usize = 20_000;
+
+static SYNTAXES: LazyLock<syntect::parsing::SyntaxSet> = LazyLock::new(syntect::parsing::SyntaxSet::load_defaults_newlines);
+
+/// A code block, its tokens in `hl-<scope>` spans when `lang` is known.
+fn highlight(lang: &str, code: &str) -> String {
+	use syntect::html::{ClassStyle, ClassedHTMLGenerator};
+	use syntect::util::LinesWithEndings;
+	let plain = || format!("<pre><code>{}</code></pre>", htmlescape::encode_minimal(code));
+	let Some(syntax) = Some(lang)
+		.filter(|lang| !lang.is_empty() && code.len() <= HIGHLIGHT_MAX_LEN)
+		.and_then(|lang| SYNTAXES.find_syntax_by_token(lang))
+	else {
+		return plain();
+	};
+	let mut html = ClassedHTMLGenerator::new_with_class_style(syntax, &SYNTAXES, ClassStyle::SpacedPrefixed { prefix: "hl-" });
+	for line in LinesWithEndings::from(code) {
+		if html.parse_html_for_line_which_includes_newline(line).is_err() {
+			return plain();
+		}
+	}
+	format!("<pre><code>{}</code></pre>", html.finalize())
+}
+
 pub fn rewrite_urls(input_text: &str) -> String {
 	let mut text1 =
 		// Rewrite Reddit links to Redlib
@@ -1949,6 +2008,32 @@ mod tests {
 	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
 	use super::{page_feed_url, prefix_relative_urls, Media};
 	use serde_json::{json, Value};
+
+	#[test]
+	fn test_markdown_highlights_fenced_code() {
+		let html = crate::utils::markdown_html("text\n\n```rust\nlet x = 1;\n```\n\n```nope\n<b>\n```");
+		assert!(html.starts_with("<div class=\"md\"><p>text</p>"));
+		assert!(html.contains("<span class=\"hl-storage hl-type hl-rust\">let</span>"));
+		// Unknown languages stay plain, but escaped
+		assert!(html.contains("<pre><code>&lt;b&gt;\n</code></pre>"));
+	}
+
+	#[test]
+	fn test_markdown_shows_html_as_text() {
+		let html = crate::utils::markdown_html("<script>alert(1)</script>\n\n```\nx\n```\n\nhi <img src=x onerror=alert(1)>");
+		assert!(!html.contains("<script") && !html.contains("<img"), "{html}");
+	}
+
+	#[test]
+	fn test_body_html_renders_fenced_code_from_markdown() {
+		let post = serde_json::json!({ "data": { "selftext": "```\nx\n```", "selftext_html": "<p>```\nx\n```</p>" } });
+		assert_eq!(
+			crate::utils::body_html(&post, "selftext", "selftext_html"),
+			"<div class=\"md\"><pre><code>x\n</code></pre></div>"
+		);
+		let post = serde_json::json!({ "data": { "selftext": "plain", "selftext_html": "<div class=\"md\"><p>plain</p></div>" } });
+		assert_eq!(crate::utils::body_html(&post, "selftext", "selftext_html"), "<div class=\"md\"><p>plain</p></div>");
+	}
 
 	#[test]
 	fn format_num_works() {
