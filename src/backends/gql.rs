@@ -91,7 +91,39 @@ async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
 	let (id, comment_id) = parse_path(path).ok_or_else(|| format!("Couldn't parse post path | {path}"))?;
 
 	let (post, comments) = futures_lite::future::zip(reddit_json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine), comments(&id, comment_id, path)).await;
-	Ok(json_value!([post?, listing(comments?)]))
+	let (comments, info) = comments?;
+	let mut post = post?;
+	// PostsByIds drops posts their author deleted; PostComments still has the title
+	if post["data"]["children"].as_array().is_some_and(Vec::is_empty) {
+		if let Some(deleted) = deleted_post(&info, path) {
+			post = listing(vec![deleted]);
+		}
+	}
+	Ok(json_value!([post, listing(comments)]))
+}
+
+/// A JSON API post for a `DeletedSubredditPost`, which has no author, body, score or date.
+fn deleted_post(info: &Value, path: &str) -> Option<Value> {
+	if info["__typename"] != "DeletedSubredditPost" {
+		return None;
+	}
+	let fullname = info["id"].as_str()?;
+	let id = fullname.strip_prefix("t3_").unwrap_or(fullname);
+	let sub = path.strip_prefix("/r/").and_then(|p| p.split('/').next()).unwrap_or_default();
+	Some(json_value!({ "kind": "t3", "data": {
+		"id": id,
+		"name": fullname,
+		"title": info["title"],
+		"author": "[deleted]",
+		"subreddit": sub,
+		"permalink": format!("/r/{sub}/comments/{id}/"),
+		"is_self": true,
+		"selftext": "[deleted]",
+		"selftext_html": "<div class=\"md\"><p>[deleted]</p></div>",
+		"num_comments": info["commentCount"],
+		"locked": info["isLocked"] == true,
+		"over_18": info["isNsfw"] == true,
+	}}))
 }
 
 fn parse_path(path: &str) -> Option<(String, Option<String>)> {
@@ -115,7 +147,8 @@ fn url_attr(value: Option<&str>) -> String {
 	htmlescape::encode_minimal(&format_url(value))
 }
 
-async fn comments(id: &str, comment_id: Option<String>, path: &str) -> Result<Vec<Value>, String> {
+/// The comments of a post, and the post as PostComments sees it (without its comments).
+async fn comments(id: &str, comment_id: Option<String>, path: &str) -> Result<(Vec<Value>, Value), String> {
 	let sort = param(path, "sort").filter(|s| !s.is_empty()).unwrap_or_else(|| "confidence".to_string());
 	let mut variables = json_value!({
 		"id": format!("t3_{id}"),
@@ -132,8 +165,13 @@ async fn comments(id: &str, comment_id: Option<String>, path: &str) -> Result<Ve
 		variables["after"] = cursor.into();
 	}
 
-	let response = query("PostComments", POST_COMMENTS_HASH, &variables).await?;
-	comment_tree(&response, id)
+	let mut response = query("PostComments", POST_COMMENTS_HASH, &variables).await?;
+	let comments = comment_tree(&response, id)?;
+	let mut info = response["data"]["postInfoById"].take();
+	if let Some(info) = info.as_object_mut() {
+		info.remove("commentForest");
+	}
+	Ok((comments, info))
 }
 
 fn comment_tree(response: &Value, post_id: &str) -> Result<Vec<Value>, String> {
@@ -473,6 +511,8 @@ fn post(node: &Value) -> Option<Value> {
 		// Search results only name the type of their media
 		"post_hint": node["postHint"].as_str().or(node["media"]["typeHint"].as_str().filter(|hint| *hint == "IMAGE")).map(|hint| hint.to_lowercase().replace('_', ":")),
 		"all_awardings": awards(node),
+		// Only ads have a call to action ("Learn More") or a disclaimer
+		"is_created_from_ads_ui": node["callToAction"].is_string() || node["adSupplementaryTextRichtext"].is_string(),
 	});
 	if node["isSelfPost"] != true {
 		data["url_overridden_by_dest"] = node["url"].clone();
@@ -992,6 +1032,20 @@ fn table(node: &Value, media: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn test_deleted_post() {
+		let info = json_value!({ "__typename": "DeletedSubredditPost", "commentCount": 1819, "id": "t3_1xlfmka", "isLocked": false, "isNsfw": false, "title": "What exactly is \"ranch sauce\"?" });
+		let post = deleted_post(&info, "/r/IWantToAskAnAmerican/comments/1xlfmka/what_exactly.json?&raw_json=1").unwrap();
+		let data = &post["data"];
+		assert_eq!(
+			(data["id"].as_str(), data["title"].as_str(), data["author"].as_str()),
+			(Some("1xlfmka"), Some("What exactly is \"ranch sauce\"?"), Some("[deleted]"))
+		);
+		assert_eq!(data["permalink"], "/r/IWantToAskAnAmerican/comments/1xlfmka/");
+		assert_eq!(data["num_comments"], 1819);
+		assert!(deleted_post(&json_value!({ "__typename": "SubredditPost", "id": "t3_x" }), "/r/a/comments/x/").is_none());
+	}
+
 	use super::*;
 
 	#[test]
@@ -1297,6 +1351,21 @@ mod tests {
 		assert_eq!(search_pane("/search.json?q=rust&type=comment"), "comments");
 		assert_eq!(search_pane("/r/rust/search.json?q=rust&type=media"), "media");
 		assert_eq!(search_pane("/search.json?q=rust"), "posts");
+	}
+
+	#[test]
+	fn test_ads_are_marked() {
+		let ad = json_value!({ "__typename": "ProfilePost", "id": "t3_1xjiiv6", "callToAction": "Learn More" });
+		let normal = json_value!({ "__typename": "SubredditPost", "id": "t3_1xl5x1j", "callToAction": null, "adSupplementaryTextRichtext": null });
+		assert_eq!(post(&ad).unwrap()["data"]["is_created_from_ads_ui"], true);
+		assert_eq!(post(&normal).unwrap()["data"]["is_created_from_ads_ui"], false);
+
+		let response: Value = serde_json::from_str(include_str!("../../tests/fixtures/gql/post_comments.json")).unwrap();
+		let tree = listing(comment_tree(&response, "1xe5jpg").unwrap());
+		let mut comments = crate::post::parse_comments(&tree, "/r/AskReddit/comments/1xe5jpg/x/", "op", "", &Default::default(), &request());
+		crate::post::mark_advertiser(&mut comments, "aubreynewmanoc");
+		assert!(comments[0].author.advertiser);
+		assert!(!comments[0].replies[0].author.advertiser);
 	}
 
 	#[test]

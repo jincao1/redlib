@@ -35,6 +35,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Subscriptions and filters were wiped** when saving a single setting ([redlib-org#562](https://github.com/redlib-org/redlib/issues/562)).
 - **Instance default post sort ignored** until the user saved their settings once ([redlib-org#521](https://github.com/redlib-org/redlib/pull/521)). With no default set, listings fall back to `hot` ([polak14 `19c6606`](https://github.com/polak14/redlib/commit/19c6606417babb0c082d9ee4948de5008475f45a)).
 - **Crash on a deleted or invalid comment link**: out-of-bounds access when a thread has no comments ([redlib-org#542](https://github.com/redlib-org/redlib/pull/542)).
+- **Posts deleted by their author had no undelete link**: only posts removed by moderators linked to the Pushshift frontend. Author-deleted posts now get a "view deleted post" link too, like deleted comments.
 - **Share links to posts on a user's profile** (`/u/<name>/s/<id>`) showed "Nothing here" ([redlib-org#560](https://github.com/redlib-org/redlib/pull/560)).
 - **Videos transcoded by Reddit** (`rich:video`, e.g. external GIF hosts) had no player; CMAF video format is supported ([redlib-org#549](https://github.com/redlib-org/redlib/pull/549)).
 - **External videos and packaged media didn't play**: Reddit's copies of Streamable and other external clips come as `external-packaged-media.redd.it` MP4s, which Redlib left unproxied (blocked by the CSP) and announced as HLS. They are now proxied under `/packaged-external/` (and `packaged-media.redd.it` under `/packaged/`), and the non-HLS fallback uses Reddit's muxed MP4, which has sound ([polak14 `29f1835`](https://github.com/polak14/redlib/commit/29f18352cf54be4ffe579f773552acd0c45cdd08)).
@@ -55,6 +56,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
 - **One number or boolean in `redlib.toml` dropped the whole file** without a message, e.g. `REDLIB_SCRAPE_COMMENT_PREFETCH = 0`. Numbers are read as text and booleans as `on`/`off`, and a file that still can't be read is logged ([#46](https://github.com/Nachtalb/redlib/issues/46)).
+- **Settings written in another case, like `REDLIB_ENABLE_RSS=ON` or `REDLIB_DEFAULT_LAYOUT=Card`, were ignored** while `/info` showed them as set. Switches, choices, backend lists, the geo filter and the Pushshift frontend's host are now read in any case; free text, subreddit names, URLs and sessions stay as written.
 - **`seccomp-redlib.json` stopped the container from starting**: current runc needs syscalls the profile blocked, and without `recvmsg` DNS lookups failed so Redlib never started listening. The profile now covers both images on amd64, including the Obscura browser.
 
 ## Features
@@ -99,11 +101,15 @@ Own features:
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next.
 - **Requests through a headless browser**: the `obscura-cookied-json` backend fetches Reddit's JSON from `www.reddit.com` with a session through the embedded [Obscura](https://github.com/h4ckf0r0day/obscura) browser in stealth mode. It is in the `latest-obscura` image (amd64 only) and in builds with `--features obscura`; `latest` and default builds don't have it.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
+- **Blocked combined feeds say why**: feeds that combine subreddits (the front page, `r/a+b`) only load through Reddit's JSON API, since GraphQL has no combined feed. When Reddit blocks that, the error page says so and links each subreddit, which still load one by one ([#118](https://github.com/Nachtalb/redlib/issues/118)).
 - **Scraped comments load on demand**: a scraped post page shows Reddit's first batch of comments. "More comments" and "More replies" open a page with the next batch, one request to Reddit per click, with a link back to all comments. `REDLIB_SCRAPE_COMMENT_PREFETCH` loads more up front.
 - **"More replies" and "More comments" load in place**: the comments appear where the link was instead of opening another page. Without JavaScript the link opens the page as before.
+- **Always open replies in thread view**: a setting that makes "More replies" open the parent comment's page (thread view) instead of loading in place, for narrow screens where deep threads get squeezed ([#107](https://github.com/Nachtalb/redlib/issues/107)). With it off, replies load in place, and open in thread view only when they would get less than half of the comments' width (2/3 on screens up to 800px). With JavaScript, replies already on the page that would be that narrow are replaced by a "More replies" link too, when the page loads and after loading in place.
+- **Threads open without a page load**: with JavaScript, "Show parent comment", "View all comments" and "More replies" that open a thread swap in that page's comments, with a working address and back button.
 - **Last good page while Reddit fails**: when every backend is blocked, rate limited or down, the last good copy from a compressed RAM cache is shown, with a bar at the top saying how old it is. See [Stale cache](CONFIGURATION.md#stale-cache).
 
 - **GIF posts play like GIFs**: muted, looping, no controls, independent of the autoplay setting.
+- **Advertiser badge**: posts made with Reddit's ad tools get an "Advertiser" badge next to the author, and so do that author's comments under them. Reddit marks the posts, not the accounts: the JSON API's `is_created_from_ads_ui`, while GraphQL only gives away ads with a call to action or a disclaimer. User pages have no badge, since no API says an account advertises.
 - **One video at a time**: with autoplay on, only the video most in view plays. It pauses when scrolled away and the next one takes over.
 - **Instance info shows the values in use**: `/info` shows the default for settings that aren't configured, marked `(default)`, instead of `Unset` or `None`.
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
@@ -143,6 +149,7 @@ Each has an instance default via `REDLIB_DEFAULT_<NAME>`:
 | Clean URLs | `REDLIB_DEFAULT_CLEAN_URLS` | `off` |
 | Posts per page | `REDLIB_DEFAULT_POSTS_PER_PAGE` | `25` |
 | Max comment thread depth | `REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH` | `0` (unlimited) |
+| Always open replies in thread view | `REDLIB_DEFAULT_MORE_REPLIES_NEW_PAGE` | `off` |
 
 All of them are documented in [CONFIGURATION.md](CONFIGURATION.md), `.env.example` and `app.json`.
 
@@ -152,7 +159,7 @@ Settings codes (Settings → export / restore) now carry a format revision:
 
 - **New codes** start with a marker byte and are revisioned. A code exported before a setting existed restores that setting to its default.
 - **Old codes** from upstream Redlib still restore. Settings they don't contain get their defaults.
-- All settings added in this fork belong to revision 2.
+- Settings added in this fork belong to revision 2, except "Always open replies in thread view" in revision 3: revision 2 codes were already in use, and a new field in revision 2 would stop them from restoring.
 
 Codes exported from this fork can't be restored on upstream Redlib.
 
@@ -181,7 +188,7 @@ With `REDLIB_ENABLE_RSS=on`, append `.rss` to a page URL, as on Reddit. Both `/r
 Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rate limits, failed token refreshes, broken media):
 
 - **wreq** `6.0.0-rc.28` → `0.16.1` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.1 also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
-- The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a platform it ships on, mostly versions Reddit serves anonymous JSON to. When Reddit blocks the current one, it leaves it out for a few hours and switches to another, as it does when Reddit refuses every session (at most once a minute).
+- The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a platform it ships on, mostly versions Reddit serves anonymous JSON to. When Reddit blocks the current one, it leaves it out for a few hours and switches to another, as it does when Reddit refuses every session (at most once a minute). Sessions refused on subreddit listings or search don't switch it, since Reddit refuses those to every browser.
 - **hyper** `0.14` → `1.x` for the server, with graceful shutdown.
 - **Spoofed Android app versions** refreshed from Nov 2024 builds to Reddit 2026.33–2026.42 on Android 12–16, with a working `update_oauth_resources.sh` ([polak14 `e19df3b`](https://github.com/polak14/redlib/commit/e19df3b54e2a9b7628a09453bad1afb64b399df8)).
 - **hls.js** `1.5.1` → `1.7.3`.
