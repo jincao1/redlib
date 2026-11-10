@@ -44,6 +44,8 @@ Bugs present in upstream Redlib that are fixed here:
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
 - **"Enable HLS to view with audio" showed on every video**, also when the MP4 played without HLS has sound or the video has none. It now only shows when HLS is the only way to hear it.
+- **Tapping a video on an iPhone could open the post below it**: Safari shrank the video when it started loading, so the posts below jumped up under the finger. Videos now keep their size ([#137](https://github.com/Nachtalb/redlib/issues/137)).
+- **HLS videos stayed dead after going back** in Safari when it restored the page from its back/forward cache. The next tap now loads them again ([#137](https://github.com/Nachtalb/redlib/issues/137)).
 - **Settings codes broke on every new setting**: codes exported before a new field was added failed to restore. See [Settings codes](#settings-codes).
 - **Comment search had no submit button.**
 - **Large numbers** show as `10K` instead of `10.0K`.
@@ -90,7 +92,7 @@ From [VictorVow1](https://github.com/VictorVow1) ([#16](https://github.com/Nacht
 
 From [0dragosh](https://github.com/0dragosh) ([patch](https://gist.github.com/0dragosh/6afe28f5e4f8659f5ae04ac2b418402b), [redlib-org#446](https://github.com/redlib-org/redlib/issues/446)):
 
-- **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. The `cookied-json` backend requests them from `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. The cookie never shows on `/info` and is never logged. See [Reddit session](CONFIGURATION.md#reddit-session).
+- **Logged-in Reddit sessions**: Reddit blocks post pages for logged-out clients. The `cookied-json` backend requests them from `www.reddit.com` with the session cookie in `REDLIB_REDDIT_COOKIE`. Subreddit listings and search, which Reddit refuses to sessions there, come from `oauth.reddit.com` with a token minted for the session like the Android app does; each host is the other's fallback. A missing or disabled page (a 404, or a 403 Reddit explains in JSON) is Reddit's answer, not a refusal. The cookie never shows on `/info` and is never logged. See [Reddit session](CONFIGURATION.md#reddit-session).
 
 From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e)):
 
@@ -189,7 +191,7 @@ With `REDLIB_ENABLE_RSS=on`, append `.rss` to a page URL, as on Reddit. Both `/r
 
 Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rate limits, failed token refreshes, broken media):
 
-- **wreq** `6.0.0-rc.28` → `0.16.1` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.1 also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
+- **wreq** `6.0.0-rc.28` → `0.16.3` and **wreq-util** `3.0.0-rc.10` → `0.2.0`, the stable line of the HTTP client that emulates browser TLS and HTTP/2 fingerprints. The BoringSSL bindings move from `boring2 5.0.0-alpha.13` to `btls 0.5.6`. 0.16.x also applies the total timeout to the response body, uses the configured timer for connect timeouts, and no longer compresses range requests.
 - The client emulates a random browser (Chrome, Firefox, Edge, Opera or Safari) on a platform it ships on, mostly versions Reddit serves anonymous JSON to. When Reddit blocks the current one, it leaves it out for a few hours and switches to another, as it does when Reddit refuses every session (at most once a minute). Sessions refused on subreddit listings or search don't switch it, since Reddit refuses those to every browser.
 - **hyper** `0.14` → `1.x` for the server, with graceful shutdown.
 - **Spoofed Android app versions** refreshed from Nov 2024 builds to Reddit 2026.33–2026.42 on Android 12–16, with a working `update_oauth_resources.sh` ([polak14 `e19df3b`](https://github.com/polak14/redlib/commit/e19df3b54e2a9b7628a09453bad1afb64b399df8)).

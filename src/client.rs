@@ -18,7 +18,7 @@ use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wreq::dns::{Addrs, GaiResolver, Name, Resolve, Resolving};
+use wreq::dns::{Addrs, Name, Resolve, Resolving};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, Method, Response as WreqResponse};
 use wreq_util::{Emulation, Platform, Profile};
@@ -234,7 +234,7 @@ fn client_for(profile: Profile, platform: Platform) -> WreqClient {
 	WreqClient::builder()
 		.emulation(Emulation::builder().profile(profile).platform(platform).build())
 		.redirect(Policy::none())
-		.dns_resolver(RedgifsIpv4Resolver(GaiResolver::new()))
+		.dns_resolver(RedgifsIpv4Resolver)
 		.build()
 		.expect("Should always be able to build a client")
 }
@@ -287,18 +287,15 @@ pub static IPV6_ONLY: AtomicBool = AtomicBool::new(false);
 /// RedGifs binds its API token to the IP that fetched it, and a dual-stack host
 /// can connect over either IPv4 or IPv6. RedGifs hosts therefore resolve to IPv4
 /// only, unless Redlib runs IPv6-only or there is no IPv4 address.
-struct RedgifsIpv4Resolver(GaiResolver);
+struct RedgifsIpv4Resolver;
 
 impl Resolve for RedgifsIpv4Resolver {
 	fn resolve(&self, name: Name) -> Resolving {
 		let pin = !IPV6_ONLY.load(Ordering::Relaxed) && crate::redgifs::is_redgifs_domain(name.as_str());
-		let lookup = self.0.resolve(name);
+		let host = name.as_str().to_owned();
 		Box::pin(async move {
-			let addrs = lookup.await?;
-			if !pin {
-				return Ok(addrs);
-			}
-			Ok(Box::new(prefer_ipv4(addrs.collect()).into_iter()) as Addrs)
+			let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, 0)).await?.collect();
+			Ok(Box::new(if pin { prefer_ipv4(addrs) } else { addrs }.into_iter()) as Addrs)
 		})
 	}
 }
@@ -603,12 +600,28 @@ pub async fn proxy(req: HyperRequest<Body>, format: &str) -> Result<HyperRespons
 /// Makes a GET request to Reddit at `path`. By default, this will honor HTTP
 /// 3xx codes Reddit returns and will automatically redirect.
 pub(crate) fn reddit_get(path: String, quarantine: bool) -> Boxed<Result<WreqResponse, String>> {
-	request(&Method::GET, path, true, quarantine, REDDIT_URL_BASE, REDDIT_URL_BASE_HOST)
+	request(&Method::GET, path, true, quarantine, REDDIT_URL_BASE, REDDIT_URL_BASE_HOST, None)
+}
+
+pub(crate) fn reddit_get_as(path: String, token: String) -> Boxed<Result<WreqResponse, String>> {
+	request(&Method::GET, path, true, false, REDDIT_URL_BASE, REDDIT_URL_BASE_HOST, Some(token))
+}
+
+/// Session tokens leave out the anonymous device's `x-reddit-loid` and `x-reddit-session`.
+fn oauth_headers(headers: std::collections::HashMap<String, String>, token: Option<&str>) -> Vec<(String, String)> {
+	let Some(token) = token else {
+		return headers.into_iter().collect();
+	};
+	headers
+		.into_iter()
+		.filter(|(key, _)| !matches!(key.as_str(), "x-reddit-loid" | "x-reddit-session"))
+		.map(|(key, value)| if key == "Authorization" { (key, format!("Bearer {token}")) } else { (key, value) })
+		.collect()
 }
 
 /// Makes a HEAD request to Reddit at `path, using the short URL base. This will not follow redirects.
 fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
-	request(&Method::HEAD, path, false, quarantine, base_path, host)
+	request(&Method::HEAD, path, false, quarantine, base_path, host, None)
 }
 
 // /// Makes a HEAD request to Reddit at `path`. This will not follow redirects.
@@ -620,7 +633,15 @@ fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, ho
 /// Makes a request to Reddit. If `redirect` is `true`, `request_with_redirect`
 /// will recurse on the URL that Reddit provides in the Location HTTP header
 /// in its response.
-fn request(method: &'static Method, path: String, redirect: bool, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
+fn request(
+	method: &'static Method,
+	path: String,
+	redirect: bool,
+	quarantine: bool,
+	base_path: &'static str,
+	host: &'static str,
+	token: Option<String>,
+) -> Boxed<Result<WreqResponse, String>> {
 	// Build Reddit URL from path.
 	let url = format!("{base_path}{path}");
 
@@ -638,9 +659,7 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 
 	{
 		let client = OAUTH_CLIENT.load_full();
-		for (key, value) in client.headers_map.clone() {
-			headers.push((key, value));
-		}
+		headers.extend(oauth_headers(client.headers_map.clone(), token.as_deref()));
 	}
 
 	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
@@ -693,6 +712,7 @@ fn request(method: &'static Method, path: String, redirect: bool, quarantine: bo
 						quarantine,
 						base_path,
 						host,
+						token,
 					)
 					.await;
 				};
@@ -742,6 +762,30 @@ impl IntoHyperResponse for WreqResponse {
 mod tests {
 	use super::*;
 	use {crate::config::get_setting, sealed_test::prelude::*};
+
+	#[test]
+	fn test_session_tokens_leave_the_anonymous_device_out() {
+		let anonymous = std::collections::HashMap::from([
+			("Authorization".to_string(), "Bearer anonymous".to_string()),
+			("x-reddit-loid".to_string(), "loid".to_string()),
+			("x-reddit-session".to_string(), "session".to_string()),
+			("User-Agent".to_string(), "Reddit/Version".to_string()),
+		]);
+		let mut session = oauth_headers(anonymous.clone(), Some("mine"));
+		session.sort();
+		assert_eq!(
+			session,
+			[
+				("Authorization".to_string(), "Bearer mine".to_string()),
+				("User-Agent".to_string(), "Reddit/Version".to_string())
+			]
+		);
+		let mut plain = oauth_headers(anonymous.clone(), None);
+		plain.sort();
+		let mut expected: Vec<_> = anonymous.into_iter().collect();
+		expected.sort();
+		assert_eq!(plain, expected);
+	}
 
 	#[test]
 	fn test_prefer_ipv4_keeps_ipv6_without_ipv4() {
