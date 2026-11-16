@@ -42,6 +42,7 @@ Bugs present in upstream Redlib that are fixed here:
 - **Video Speed Controller overlays landed in the wrong place**: post media, comment images and the comment sidebar had no positioned container ([Sparronator9999 `ed63495`](https://github.com/Sparronator9999/redlib/commit/ed63495b12cf5d6b66d87c0ed43055e498423a08)).
 - **Inconsistent margins** inside posts and comments, and headings without margins; empty zero-width-space paragraphs no longer add gaps ([redlib-org#413](https://github.com/redlib-org/redlib/pull/413)).
 - **Autoplaying videos played with sound**: with "Autoplay videos" on, every video on a listing could start with audio at once. Autoplay is now muted.
+- **HLS videos sometimes failed to load**: v.redd.it answered the playlist with `403` while its link carried Reddit's query, often for several minutes. Redlib now requests the playlist without the query.
 - **Pausing an HLS video while it loads** was ignored and the video started playing anyway.
 - **"Enable HLS to view with audio" showed on every video**, also when the MP4 played without HLS has sound or the video has none. It now only shows when HLS is the only way to hear it.
 - **Tapping a video on an iPhone could open the post below it**: Safari shrank the video when it started loading, so the posts below jumped up under the finger. Videos now keep their size ([#137](https://github.com/Nachtalb/redlib/issues/137)).
@@ -55,6 +56,10 @@ Bugs present in upstream Redlib that are fixed here:
 - **Search box focus outline** covers the whole search form, not just the input ([redlib-org#524](https://github.com/redlib-org/redlib/pull/524)).
 - **`REDLIB_ENABLE_RSS=off` still served feeds**: any value turned feeds on, while the RSS buttons only showed for `on`. Feeds now need `on` ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **RSS feeds for `r/popular` and `r/all` failed** with a Reddit 404: they have no subreddit metadata to fetch ([#16](https://github.com/Nachtalb/redlib/pull/16)).
+- **`redlib -h` and `--help` were rejected** as unknown arguments: the argument parser was built without its help ([#156](https://github.com/Nachtalb/redlib/issues/156)).
+- **r/all showed the same page after Next**: Reddit answers a bare `/r/all+.json` with a fixed copy of r/popular's first page, so it is requested as `/r/all%2B.json`, which pages and sorts.
+- **New and Rising of combined feeds were blocked** (`r/a+b`, the front page of your subscriptions): Reddit refuses these sorts to its JSON API, with or without a session, and GraphQL has no combined feeds. The `scraped` backend now reads the post IDs from the old listing page Reddit still serves logged-out visitors for these feeds and loads the posts from the other backends; `cookied-json` does the same with a session, for hosts Reddit blocks logged out ([#155](https://github.com/Nachtalb/redlib/issues/155)). See [Scrape fallback](CONFIGURATION.md#scrape-fallback).
+- **Top and controversial showed all-time posts** while the timeframe menu said "day": Reddit's API reads a missing `t` as all time, so `t=day` is sent when the URL has none, as on reddit.com.
 - **RSS text was escaped or decoded wrongly**: subreddit feed titles showed `&amp;` for `&`, and user feeds turned escaped text like `Vec&lt;T&gt;` into markup that readers hid ([#16](https://github.com/Nachtalb/redlib/pull/16)).
 - **Shutdown cut off running downloads**: on SIGTERM or Ctrl+C, the server now finishes in-flight requests before exiting.
 - **One number or boolean in `redlib.toml` dropped the whole file** without a message, e.g. `REDLIB_SCRAPE_COMMENT_PREFETCH = 0`. Numbers are read as text and booleans as `on`/`off`, and a file that still can't be read is logged ([#46](https://github.com/Nachtalb/redlib/issues/46)).
@@ -72,10 +77,13 @@ From upstream pull requests that are not merged upstream:
 - **Keyboard navigation** on post pages ([redlib-org#422](https://github.com/redlib-org/redlib/pull/422)): `j` / `k` next / previous comment, `t` / `p` next / previous thread, `Enter` open the post link, `Shift+Enter` open it in a new tab.
 - **Collapse a comment** by clicking its indent line ([redlib-org#291](https://github.com/redlib-org/redlib/pull/291)).
 - **Lazy-loaded post images** ([redlib-org#539](https://github.com/redlib-org/redlib/pull/539)).
-- **Geo filter** as a user setting instead of a URL parameter ([redlib-org#566](https://github.com/redlib-org/redlib/pull/566)), with country flags and names in the dropdown.
+- **r/popular region** (the geo filter) as a user setting instead of a URL parameter ([redlib-org#566](https://github.com/redlib-org/redlib/pull/566)), with country flags, and each country named in its own language with the English name after it, sorted by the native name. Only Reddit's JSON API applies it, so with a region set r/popular is asked from `json` first, and a bar at the top says when another backend served the global feed instead.
 - **Configurable source code link** in the footer ([redlib-org#568](https://github.com/redlib-org/redlib/pull/568)).
 - **Better RSS media**: images, galleries and videos render in RSS readers, and content is HTML-escaped ([redlib-org#572](https://github.com/redlib-org/redlib/pull/572)).
 - **Catppuccin themes**: Latte, Frappé, Macchiato and Mocha ([redlib-org#538](https://github.com/redlib-org/redlib/pull/538)).
+- **Light and dark theme for System**: with the System theme, any theme can be picked for the browser's light mode and another for dark mode, instead of the built-in light and dark.
+- **Theme preview**: picking a theme on the settings page shows it at once, before saving.
+- **Readable theme names** in settings, like "Gruvbox Dark" and "Catppuccin Frappé" instead of "Gruvboxdark" and "CatppuccinFrappe".
 - **Download all images of a gallery** from the post page as individual files ([redlib-org#546](https://github.com/redlib-org/redlib/pull/546)). Needs JavaScript.
 - **Post pages without a Reddit session**: the `scraped` backend takes the post from `/by_id` and scrapes the comments from the HTML Reddit serves logged-out visitors ([redlib-org#599](https://github.com/redlib-org/redlib/pull/599), used only as a fallback here). Turn it off with `REDLIB_ENABLE_SCRAPE_FALLBACK=off`. See [Scrape fallback](CONFIGURATION.md#scrape-fallback).
 
@@ -100,8 +108,8 @@ From [polak14](https://github.com/polak14) ([`a63460b`](https://github.com/polak
 
 Own features:
 
-- **More pages from GraphQL**: the same fallback also covers posts by ID, subreddit/popular/all listings, search, subreddit info and sidebar, and user pages (a user's overview is one merged page of posts and comments).
-- **Backend order**: every Reddit request tries a list of backends (anonymous JSON, session JSON, GraphQL, scraping) in an order set per kind of request with `REDLIB_ENDPOINTS_<KIND>`. By default GraphQL goes first except for listings, wiki and duplicates. While running, backends that keep failing move down and ones that work move up; `/info` shows the current order and each backend's score, with how it is calculated. See [Backend order](CONFIGURATION.md#backend-order).
+- **More pages from GraphQL**: the same fallback also covers posts by ID, subreddit/popular/all listings, search, subreddit info and sidebar, user pages (a user's overview is one merged page of posts and comments) and wiki pages ([#144](https://github.com/Nachtalb/redlib/issues/144)). Wiki pages get Reddit's heading ids and table of contents, so `#wiki_...` section links still work. The active Posts or Wiki tab links to that tab's first page, so a deeper page or a wiki subpage is one click from the start.
+- **Backend order**: every Reddit request tries a list of backends (anonymous JSON, session JSON, GraphQL, scraping) in an order set per kind of request with `REDLIB_ENDPOINTS_<KIND>`. By default GraphQL goes first except for listings and duplicates. While running, backends that keep failing move down and ones that work move up; `/info` shows the current order and each backend's score, with how it is calculated. See [Backend order](CONFIGURATION.md#backend-order).
 - **Several Reddit sessions**: `REDLIB_REDDIT_COOKIE` takes several cookies separated by `|`. Blocked requests use them in turn, and a refused session hands the request to the next. A session whose request budget is used up (`x-ratelimit-remaining` 0 or a 429) rests until Reddit resets it, instead of being asked and refused on every request. Sessions that are only out of budget make a rate limit, not a block, and don't switch the browser emulation.
 - **The block message doesn't reveal whether a session is set**: visitors see the same 403 text either way, telling the instance host to set or renew `REDLIB_REDDIT_COOKIE`.
 - **Blocked combined feeds say why**: feeds that combine subreddits (the front page, `r/a+b`) only load through Reddit's JSON API, since GraphQL has no combined feed. When Reddit blocks that, the error page says so and links each subreddit, which still load one by one ([#118](https://github.com/Nachtalb/redlib/issues/118)).
@@ -117,7 +125,7 @@ Own features:
 - **Instance info shows the values in use**: `/info` shows the default for settings that aren't configured, marked `(default)`, instead of `Unset` or `None`.
 - **`/healthz` endpoint**: returns `200 ok` without contacting Reddit.
 - **`/healthz/reddit` endpoint**: for status pages. Reports how the last 20 post pages visitors opened went (`ok`, `scraped`, `blocked`) and returns `503` when fewer than half got Reddit's JSON. It never contacts Reddit itself. `/healthz/reddit.json` serves the same status as a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge).
-- **The footer shows the running commit**: a GitHub icon and the short commit hash link to the source repository, in place of the version number and the separate "Code" link. `/info` shows the same: a Source row and the short commit linked to the commit itself (full hash on hover), with no crate version, and the deploy date to the second.
+- **The footer shows the running commit**: a GitHub icon and the short commit hash link to the source repository, in place of the version number and the separate "Code" link. `/info` shows the same: a Source row and the short commit linked to the commit itself (full hash on hover), with no crate version, and the deploy date to the second. A hidden HTML comment keeps the `id="version">` marker so upstream's instance list still picks the instance up.
 - **Search tabs like Reddit's**: Posts, Comments, Media, Communities and People.
   Each tab is a plain link with only its own filters (post type, sort, time),
   so they work without JavaScript. Results come from `DynamicSearch`, the query
@@ -125,6 +133,7 @@ Own features:
   below, or opens them as the next page without JavaScript
   ([#69](https://github.com/Nachtalb/redlib/issues/69)).
 - **New Reddit's sidebar**: subreddits show the widgets new Reddit shows (rules you can expand, related communities with their member counts, text boxes, images, link menus) instead of the old-reddit sidebar text mods often left stale. Each box folds on its title and only the rules start open, so big sidebars like r/europe stay short. Subreddits without widgets keep the old sidebar.
+- **`--cacert <FILE>`** or `REDLIB_CACERT`: trusts only the CA certificates in that file for requests to Reddit, to inspect them through a proxy like mitmproxy ([#157](https://github.com/Nachtalb/redlib/issues/157)).
 
 ## Configuration
 
@@ -134,7 +143,7 @@ Own features:
 |---|---|---|
 | `REDLIB_ENABLE_REDGIFS` | `on` | Proxy RedGifs videos and play them inline. `off` leaves RedGifs as plain links. |
 | `REDLIB_ENABLE_GIPHY` | `on` | Proxy GIPHY GIFs in comments and play them inline. `off` leaves them as plain links. |
-| `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Allow the `scraped` backend: comments scraped from Reddit's HTML. `off` shows the block error instead. |
+| `REDLIB_ENABLE_SCRAPE_FALLBACK` | `on` | Allow the `scraped` backend: comments and combined feeds scraped from Reddit's HTML. `off` shows the block error instead. |
 | `REDLIB_ENABLE_GQL` | `on` | Allow the `gql` backend: Reddit's GraphQL API. `off` never contacts GraphQL. |
 | `REDLIB_ENDPOINTS`, `REDLIB_ENDPOINTS_<KIND>` | per kind | Which backends load Reddit data, in which order. |
 | `REDLIB_SCRAPE_COMMENT_PREFETCH` | `0` | Extra requests a scraped post page makes to load more comments up front. `0` loads them only when asked. |
@@ -149,11 +158,12 @@ Each has an instance default via `REDLIB_DEFAULT_<NAME>`:
 
 | Setting | Variable | Default |
 |---|---|---|
-| Geo filter | `REDLIB_DEFAULT_GEO_FILTER` | `GLOBAL` |
+| r/Popular region | `REDLIB_DEFAULT_GEO_FILTER` | `GLOBAL` |
 | Clean URLs | `REDLIB_DEFAULT_CLEAN_URLS` | `off` |
 | Posts per page | `REDLIB_DEFAULT_POSTS_PER_PAGE` | `25` |
 | Max comment thread depth | `REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH` | `0` (unlimited) |
 | Always open replies in thread view | `REDLIB_DEFAULT_MORE_REPLIES_NEW_PAGE` | `off` |
+| Light theme, dark theme (for the System theme) | `REDLIB_DEFAULT_LIGHT_THEME`, `REDLIB_DEFAULT_DARK_THEME` | empty (built-in light/dark) |
 
 All of them are documented in [CONFIGURATION.md](CONFIGURATION.md), `.env.example` and `app.json`.
 
@@ -163,7 +173,7 @@ Settings codes (Settings → export / restore) now carry a format revision:
 
 - **New codes** start with a marker byte and are revisioned. A code exported before a setting existed restores that setting to its default.
 - **Old codes** from upstream Redlib still restore. Settings they don't contain get their defaults.
-- Settings added in this fork belong to revision 2, except "Always open replies in thread view" in revision 3: revision 2 codes were already in use, and a new field in revision 2 would stop them from restoring.
+- Settings added in this fork belong to revision 2, except "Always open replies in thread view" in revision 3 and the light and dark theme in revision 4: older revisions' codes were already in use, and a new field in them would stop those codes from restoring.
 
 Codes exported from this fork can't be restored on upstream Redlib.
 
@@ -212,7 +222,7 @@ Upgraded in the hope of reducing Reddit's TLS/SSL and fingerprinting errors (rat
 - Formatting is enforced with pre-commit and a Lint workflow: `cargo fmt`, [djhtml](https://github.com/rtts/djhtml) for templates, Prettier for CSS and JS, plus whitespace and line-ending checks. Run `pre-commit install` once.
 - `.editorconfig`: tabs for Rust, 4 spaces for templates, CSS and JS, 2 spaces for YAML and JSON.
 - CI builds each platform in its own job, with the Cargo registry and `target/` cached between runs.
-- A Tests workflow runs `cargo test` on every pull request and push to `main`, including the tests that need reddit.com. Those share one runtime (`client::block_on_shared`), because `CLIENT`'s pooled connections die with the runtime that opened them. Only `test_generic_web_backend` is `#[ignore]`d, because `www.reddit.com` answers GitHub's runners with 403; run it with `cargo test -- --include-ignored`. The tests only emulate a fixed list of browsers Reddit serves anonymous `oauth.reddit.com` JSON to, so they don't depend on the draw. `backends::live_tests` calls each backend directly (every GraphQL query, the session backends) so one can't break unnoticed behind another; the session backends use a throwaway account's `REDLIB_REDDIT_COOKIE` from a repository secret and skip without it.
+- A Tests workflow runs `cargo test` on every pull request and push to `main`, including the tests that need reddit.com. Those share one runtime (`client::block_on_shared`), because `CLIENT`'s pooled connections die with the runtime that opened them. Only `test_generic_web_backend`, `test_scraped_combined_feed` and `test_cookied_json_combined_feed` are `#[ignore]`d, because `www.reddit.com` answers GitHub's runners with 403; run them with `cargo test -- --include-ignored`. The tests only emulate a fixed list of browsers Reddit serves anonymous `oauth.reddit.com` JSON to, so they don't depend on the draw. `backends::live_tests` calls each backend directly (every GraphQL query, the session backends) so one can't break unnoticed behind another; the session backends use a throwaway account's `REDLIB_REDDIT_COOKIE` from a repository secret and skip without it.
 - A manual Fingerprints workflow asks Reddit about every browser the client can emulate, writes the table to the run summary, and fails when the tests' list has one Reddit blocks.
 - A new push cancels the Lint, Tests and Container build runs still going for the same branch.
 - CI only runs when files it checks change: a commit that touches only Markdown runs Lint but no Tests or Container build.

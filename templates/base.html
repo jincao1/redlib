@@ -37,17 +37,23 @@
             <div id="video_quality" data-value="{{ prefs.video_quality }}"></div>
         {% endblock %}
         <script src="/app.js?v={{ env!("BUILD_TIME") }}"></script>
-    {#- With the stale bar, a fixed navbar becomes a sticky header: the bar can wrap, so its height isn't known -#}
+    {#- With a notice bar, a fixed navbar becomes a sticky header: the bar can wrap, so its height isn't known -#}
     {%- let stale_age = crate::backends::stale::served_age() -%}
-    {%- let fixed_navbar = prefs.fixed_navbar == "on" && stale_age.is_none() -%}
+    {%- let region_ignored = crate::backends::stale::region_ignored() -%}
+    {%- let notice = stale_age.is_some() || region_ignored -%}
+    {%- let fixed_navbar = prefs.fixed_navbar == "on" && !notice -%}
     <body class="
                  {% if prefs.layout != "" %}{{ prefs.layout }}{% endif %}
                  {% if prefs.wide == "on" %} wide{% endif %}
                  {% if prefs.theme != "system" %} {{ prefs.theme }}{% endif %}
+                 {% if prefs.theme == "system" || prefs.theme == "" %}{% if prefs.light_theme != "" %} light-{{ prefs.light_theme }}{% endif %}{% if prefs.dark_theme != "" %} dark-{{ prefs.dark_theme }}{% endif %}{% endif %}
                  {% if fixed_navbar %} fixed_navbar{% endif %}">
-        <div class="top_bars{% if prefs.fixed_navbar == "on" && stale_age.is_some() %} sticky{% endif %}">
+        <div class="top_bars{% if prefs.fixed_navbar == "on" && notice %} sticky{% endif %}">
             {% if let Some(age) = stale_age %}
                 <div class="stale_banner" role="alert">Reddit is refusing requests. Showing this page from {{ age }}.</div>
+            {% endif %}
+            {% if region_ignored %}
+                <div class="stale_banner" role="alert">Your r/popular region couldn't be applied. Showing the global feed.</div>
             {% endif %}
 		<!-- NAVIGATION BAR -->
             <nav class="
@@ -71,7 +77,7 @@
                 <svg id="search_icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M 21 3 C 11.601563 3 4 10.601563 4 20 C 4 29.398438 11.601563 37 21 37 C 24.355469 37 27.460938 36.015625 30.09375 34.34375 L 42.375 46.625 L 46.625 42.375 L 34.5 30.28125 C 36.679688 27.421875 38 23.878906 38 20 C 38 10.601563 30.398438 3 21 3 Z M 21 7 C 28.199219 7 34 12.800781 34 20 C 34 27.199219 28.199219 33 21 33 C 13.800781 33 8 27.199219 8 20 C 8 12.800781 13.800781 7 21 7 Z"></path>
                 </svg>
-                    <a id="settings_link" href="/settings?return_to={{ self.url }}">
+                    <a id="settings_link" href="/settings?return_to={{ self.url|urlencode }}">
                         <span>settings</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <title>settings</title>
@@ -94,6 +100,7 @@
         {% block footer %}
             <footer>
                 <div class="footer-buttons">
+                    <!-- id="version">v0.69.0 -->
                     <p><a id="source" href="{{ crate::utils::get_source_url() }}" title="View source code"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>{{ crate::utils::short_git_hash() }}</a>&emsp;<a href="/info" title="View instance information">ⓘ View instance info</a></p>
                 </div>
             </footer>

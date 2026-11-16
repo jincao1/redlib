@@ -75,7 +75,7 @@ pub enum Kind {
 	Comments,
 	/// Posts of a subreddit, popular and the front page.
 	Listing,
-	/// r/all, which Reddit retired; JSON still serves it as `r/all+`.
+	/// r/all, which Reddit retired; JSON still serves it as `r/all%2B`.
 	All,
 	/// Subreddit info (`/r/<sub>/about`).
 	Subreddit,
@@ -107,12 +107,13 @@ impl Kind {
 	fn default_order(self) -> &'static str {
 		match self {
 			Self::Post | Self::Subreddit | Self::Search => "gql, json, cookied-json",
-			// Reddit answers anonymous user JSON with 403 whatever the client
-			Self::User => "gql, cookied-json",
+			// Reddit answers anonymous user and wiki JSON with 403 whatever the client
+			Self::User | Self::Wiki => "gql, cookied-json",
 			Self::Comments => "gql, cookied-json, scraped, json",
-			Self::Listing => "json, gql, cookied-json",
+			// Only `scraped` serves the sorts Reddit refuses to the JSON API for combined feeds
+			Self::Listing => "json, gql, scraped, cookied-json",
 			Self::All => "json, gql, cookied-json",
-			Self::Wiki | Self::Duplicates => "json, cookied-json",
+			Self::Duplicates => "json, cookied-json",
 		}
 	}
 
@@ -131,10 +132,11 @@ impl Kind {
 	}
 
 	/// The JSON API path for `path`: Reddit answers `/r/all` with 403 but
-	/// still serves the same feed as the "multireddit" `/r/all+`.
+	/// still serves the same feed as the "multireddit" `/r/all%2B`. A bare `+`
+	/// reads as a space and gets a fixed copy of r/popular's first page.
 	pub fn json_path(path: &str) -> std::borrow::Cow<'_, str> {
 		match path.strip_prefix("/r/all") {
-			Some(rest) if Self::of(path) == Self::All => format!("/r/all+{rest}").into(),
+			Some(rest) if Self::of(path) == Self::All => format!("/r/all%2B{rest}").into(),
 			_ => path.into(),
 		}
 	}
@@ -288,14 +290,30 @@ fn cursor_owner(path: &str) -> Option<&'static str> {
 	})
 }
 
+/// The r/popular region `path` asks for, unless it's global. Only `json`
+/// applies it, so it is tried first.
+fn region(path: &str) -> Option<String> {
+	if !path.starts_with("/r/popular") {
+		return None;
+	}
+	param(&format!("?{}", path.split_once('?')?.1), "geo_filter").filter(|region| !region.is_empty() && region != "GLOBAL")
+}
+
 /// Fetches `path` from the first backend that serves it, and names that backend.
 /// When Reddit refuses or fails, the last good response is served instead.
 pub async fn fetch(path: String, quarantine: bool) -> Result<(Value, &'static str), String> {
-	match fetch_fresh(path.clone(), quarantine).await {
+	let found = match fetch_fresh(path.clone(), quarantine).await {
 		Ok(found) => Ok(found),
 		Err((msg, true)) => stale::load(&path, quarantine).ok_or(msg),
 		Err((msg, false)) => Err(msg),
+	};
+	// Reddit echoes the region it applied; other backends' feeds have none
+	if let Ok((json, _)) = &found {
+		if region(&path).is_some() && json["data"]["geo_filter"].is_null() {
+			stale::mark_region_ignored();
+		}
 	}
+	found
 }
 
 /// `fetch` without the stale fallback; the error says whether Reddit failed
@@ -309,7 +327,13 @@ async fn fetch_fresh(path: String, quarantine: bool) -> Result<(Value, &'static 
 
 	let backends: Order = match cursor_owner(&path).filter(|_| kind == Kind::Comments) {
 		Some(owner) => BACKENDS.iter().copied().filter(|backend| backend.name() == owner).collect(),
-		None => order(kind),
+		None => {
+			let mut order = order(kind);
+			if region(&path).is_some() {
+				order.sort_by_key(|backend| backend.name() != "json");
+			}
+			order
+		}
 	};
 	for backend in backends.into_iter().filter(|backend| usable(kind, *backend)) {
 		let result = backend.fetch(&path, quarantine).await;
@@ -443,9 +467,16 @@ mod tests {
 	}
 
 	#[test]
+	fn test_region() {
+		assert_eq!(region("/r/popular/hot.json?&raw_json=1&geo_filter=DE"), Some("DE".into()));
+		assert_eq!(region("/r/popular/hot.json?&raw_json=1&geo_filter=GLOBAL"), None);
+		assert_eq!(region("/r/rust/hot.json?geo_filter=DE"), None);
+	}
+
+	#[test]
 	fn test_json_path() {
-		assert_eq!(Kind::json_path("/r/all/new.json?raw_json=1"), "/r/all+/new.json?raw_json=1");
-		assert_eq!(Kind::json_path("/r/all.json?raw_json=1"), "/r/all+.json?raw_json=1");
+		assert_eq!(Kind::json_path("/r/all/new.json?raw_json=1"), "/r/all%2B/new.json?raw_json=1");
+		assert_eq!(Kind::json_path("/r/all.json?raw_json=1"), "/r/all%2B.json?raw_json=1");
 		for path in ["/r/allthingsdnd/hot.json", "/r/all/search.json?q=rust", "/r/all/about.json", "/r/rust/hot.json"] {
 			assert_eq!(Kind::json_path(path), path);
 		}
@@ -478,8 +509,8 @@ mod tests {
 	#[sealed_test]
 	fn test_default_order() {
 		assert_eq!(names(&order(Kind::Comments)), ["gql", "cookied-json", "scraped", "json"]);
-		assert_eq!(names(&order(Kind::Listing)), ["json", "gql", "cookied-json"]);
-		assert_eq!(names(&order(Kind::Wiki)), ["json", "cookied-json"]);
+		assert_eq!(names(&order(Kind::Listing)), ["json", "gql", "scraped", "cookied-json"]);
+		assert_eq!(names(&order(Kind::Wiki)), ["gql", "cookied-json"]);
 		assert_eq!(names(&order(Kind::All)), ["json", "gql", "cookied-json"]);
 	}
 
@@ -493,7 +524,7 @@ mod tests {
 	#[test]
 	#[sealed_test(env = [("REDLIB_ENDPOINTS", ""), ("REDLIB_ENDPOINTS_LISTING", "gql")])]
 	fn test_empty_setting_means_unset() {
-		assert_eq!(names(&order(Kind::Wiki)), ["json", "cookied-json"]);
+		assert_eq!(names(&order(Kind::Wiki)), ["gql", "cookied-json"]);
 		assert_eq!(names(&order(Kind::Listing)), ["gql"]);
 	}
 

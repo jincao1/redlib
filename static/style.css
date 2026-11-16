@@ -863,7 +863,7 @@ summary:not(.comment_data):hover {
     line-height: 35px;
 }
 
-#top > div {
+#top > .active {
     border-bottom: 2px solid var(--text);
 }
 
@@ -2115,6 +2115,11 @@ summary.comment_data {
     height: 35px;
     align-items: center;
     margin-top: 7px;
+}
+
+/* Only the System theme follows the browser's light or dark scheme */
+fieldset:not(:has(#theme option[value="system"]:checked)) .system_theme {
+    display: none;
 }
 
 .prefs-group > *:not(:last-child) {

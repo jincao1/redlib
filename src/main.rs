@@ -119,7 +119,16 @@ async fn style() -> Result<Response<Body>, String> {
 	for file in ThemeAssets::iter() {
 		res.push('\n');
 		let theme = ThemeAssets::get(file.as_ref()).unwrap();
-		res.push_str(std::str::from_utf8(theme.data.as_ref()).unwrap());
+		let css = std::str::from_utf8(theme.data.as_ref()).unwrap();
+		res.push_str(css);
+		// `light-<theme>` and `dark-<theme>`: the theme only while the browser is in that scheme
+		let name = file.trim_end_matches(".css");
+		for scheme in ["light", "dark"] {
+			let scoped = css
+				.replace(&format!(".{name} "), &format!(".{scheme}-{name} "))
+				.replace(&format!(".{name})"), &format!(".{scheme}-{name})"));
+			res.push_str(&format!("\n@media (prefers-color-scheme: {scheme}) {{\n{scoped}}}\n"));
+		}
 	}
 	Ok(
 		Response::builder()
@@ -186,7 +195,27 @@ async fn main() {
 				.default_value(setting_or("REDLIB_HSTS", "604800"))
 				.num_args(1),
 		)
+		.arg(
+			Arg::new("cacert")
+				.long("cacert")
+				.value_name("FILE")
+				.help("Trust only the CA certificates in this PEM file for upstream TLS, to inspect traffic through a proxy (debugging only)")
+				.num_args(1),
+		)
 		.get_matches();
+
+	if let Some(path) = &matches.get_one::<String>("cacert").cloned().or_else(|| config::get_setting("REDLIB_CACERT")) {
+		match std::fs::read(path).map_err(|e| e.to_string()).and_then(|pem| redlib::client::ca_store(&pem)) {
+			Ok(store) => {
+				_ = redlib::client::CA_STORE.set(store);
+				warn!("--cacert / REDLIB_CACERT: upstream TLS now trusts only the certificates in {path}. This is for debugging.");
+			}
+			Err(e) => {
+				eprintln!("--cacert / REDLIB_CACERT {path}: {e}");
+				std::process::exit(1);
+			}
+		}
+	}
 
 	redlib::backends::log_orders();
 
@@ -293,6 +322,9 @@ async fn main() {
 		.at("/check_update.js")
 		.get(|_| resource(include_str!("../static/check_update.js"), "text/javascript", false).boxed());
 	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", false).boxed());
+	app
+		.at("/themePreview.js")
+		.get(|_| resource(include_str!("../static/themePreview.js"), "text/javascript", false).boxed());
 	app
 		.at("/static/keyboardcommands.js")
 		.get(|_| resource(include_str!("../static/keyboardcommands.js"), "text/javascript", false).boxed());

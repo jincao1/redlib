@@ -143,6 +143,12 @@ pub struct Config {
 	#[serde(rename = "REDLIB_DEFAULT_MORE_REPLIES_NEW_PAGE")]
 	pub(crate) default_more_replies_new_page: Option<String>,
 
+	#[serde(rename = "REDLIB_DEFAULT_LIGHT_THEME")]
+	pub(crate) default_light_theme: Option<String>,
+
+	#[serde(rename = "REDLIB_DEFAULT_DARK_THEME")]
+	pub(crate) default_dark_theme: Option<String>,
+
 	/// A logged-in Reddit web session, sent as the `Cookie` header on requests
 	/// Reddit refuses to serve to logged-out clients.
 	///
@@ -176,6 +182,10 @@ pub struct Config {
 	#[serde(rename = "REDLIB_HSTS")]
 	#[serde(skip_serializing)]
 	pub(crate) hsts: Option<String>,
+
+	#[serde(rename = "REDLIB_CACERT")]
+	#[serde(skip_serializing)]
+	pub(crate) cacert: Option<String>,
 
 	#[serde(rename = "REDLIB_IPV4_ONLY")]
 	#[serde(skip_serializing)]
@@ -296,6 +306,8 @@ impl Config {
 			default_posts_per_page: parse("REDLIB_DEFAULT_POSTS_PER_PAGE"),
 			default_max_comment_thread_depth: parse("REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH"),
 			default_more_replies_new_page: parse("REDLIB_DEFAULT_MORE_REPLIES_NEW_PAGE"),
+			default_light_theme: parse("REDLIB_DEFAULT_LIGHT_THEME"),
+			default_dark_theme: parse("REDLIB_DEFAULT_DARK_THEME"),
 			reddit_cookie: parse("REDLIB_REDDIT_COOKIE"),
 			reddit_cookie_file: parse("REDLIB_REDDIT_COOKIE_FILE"),
 			stale_cache_mb: parse("REDLIB_STALE_CACHE_MB"),
@@ -303,6 +315,7 @@ impl Config {
 			port: parse("REDLIB_LISTEN_PORT"),
 			address: parse("REDLIB_LISTEN_ADDRESS"),
 			hsts: parse("REDLIB_HSTS"),
+			cacert: parse("REDLIB_CACERT"),
 			ipv4_only: parse("REDLIB_IPV4_ONLY"),
 			ipv6_only: parse("REDLIB_IPV6_ONLY"),
 			endpoints: parse("REDLIB_ENDPOINTS"),
@@ -375,6 +388,8 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_POSTS_PER_PAGE" => config.default_posts_per_page.clone(),
 		"REDLIB_DEFAULT_MAX_COMMENT_THREAD_DEPTH" => config.default_max_comment_thread_depth.clone(),
 		"REDLIB_DEFAULT_MORE_REPLIES_NEW_PAGE" => config.default_more_replies_new_page.clone(),
+		"REDLIB_DEFAULT_LIGHT_THEME" => config.default_light_theme.clone(),
+		"REDLIB_DEFAULT_DARK_THEME" => config.default_dark_theme.clone(),
 		"REDLIB_REDDIT_COOKIE" => config.reddit_cookie.clone(),
 		"REDLIB_REDDIT_COOKIE_FILE" => config.reddit_cookie_file.clone(),
 		"REDLIB_STALE_CACHE_MB" => config.stale_cache_mb.clone(),
@@ -382,6 +397,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_LISTEN_PORT" => config.port.clone(),
 		"REDLIB_LISTEN_ADDRESS" => config.address.clone(),
 		"REDLIB_HSTS" => config.hsts.clone(),
+		"REDLIB_CACERT" => config.cacert.clone(),
 		"REDLIB_IPV4_ONLY" => config.ipv4_only.clone(),
 		"REDLIB_IPV6_ONLY" => config.ipv6_only.clone(),
 		"REDLIB_ENDPOINTS" => config.endpoints.clone(),

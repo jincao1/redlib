@@ -43,6 +43,9 @@ Redlib supports the following command line flags. They take precedence over envi
 - `-a`, `--address <ADDRESS>`: Sets address to listen on. Default is `[::]`.
 - `-p`, `--port <PORT>`: Port to listen on. Default is `8080`.
 - `-H`, `--hsts <EXPIRE_TIME>`: HSTS header to tell browsers that this site should only be accessed over HTTPS. Default is `604800`.
+- `--cacert <FILE>`: Trust only the CA certificates in this PEM file for requests to Reddit and the other upstream hosts. For debugging: `ALL_PROXY=http://127.0.0.1:8080 redlib --cacert ~/.mitmproxy/mitmproxy-ca-cert.pem` shows the decrypted traffic in mitmproxy. `REDLIB_CACERT` sets the same; the flag takes precedence.
+- `-h`, `--help`: Print the flags and exit.
+- `-V`, `--version`: Print the version and exit.
 
 ## Instance settings
 
@@ -60,7 +63,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `ENABLE_GIPHY`            | `["on", "off"]` | `on`                                   | Proxies GIPHY GIFs in comments and plays them inline. Set to `off` to leave them as plain links.          |
 | `FULL_URL`                | String          | (empty)                                | Allows for proper URLs (for now, only needed by RSS)                                                      |
 | `SOURCE_URL`              | String          | `https://github.com/Nachtalb/redlib`   | Link to the source code for this instance. The update check on error pages compares against this GitHub repository's `main` branch. |
-| `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Allows the `scraped` backend: comments scraped from Reddit's HTML. See [Scrape fallback](#scrape-fallback). |
+| `ENABLE_SCRAPE_FALLBACK`  | `["on", "off"]` | `on`                                   | Allows the `scraped` backend: comments and combined feeds scraped from Reddit's HTML. See [Scrape fallback](#scrape-fallback). |
 | `ENABLE_GQL`              | `["on", "off"]` | `on`                                   | Allows the `gql` backend: Reddit's GraphQL API. `off` never contacts it. |
 | `ENDPOINTS`, `ENDPOINTS_<KIND>` | List      | per kind                               | Which backends load Reddit data, in which order. See [Backend order](#backend-order). |
 | `SCRAPE_COMMENT_PREFETCH` | Integer         | `0`                                    | Extra requests a scraped post page makes to load more comments up front. See [Scrape fallback](#scrape-fallback). |
@@ -74,6 +77,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `HSTS`                    | Integer         | `604800`                               | `max-age` of the HSTS header in seconds. `-H` takes precedence. |
 | `IPV4_ONLY`               | `["on", "off"]` | `off`                                  | Listens on IPv4 only, like `-4` or `IPV4_ONLY`. |
 | `IPV6_ONLY`               | `["on", "off"]` | `off`                                  | Listens on IPv6 only, like `-6` or `IPV6_ONLY`. |
+| `CACERT`                  | String          | (empty)                                | PEM file with the only CA certificates trusted for requests to Reddit, for debugging through a proxy. `--cacert` takes precedence. |
 
 ### Reddit session
 
@@ -111,6 +115,8 @@ A listing page takes about 20 KB, a post with its comments 5–10 KB, so the def
 
 When the backends before it fail, the `scraped` backend loads a post page's comments from the HTML Reddit serves logged-out visitors. It shows Reddit's first batch; "More comments" and "More replies" fetch more when clicked. To load more up front, set `REDLIB_SCRAPE_COMMENT_PREFETCH` to the number of extra requests per page, e.g. `5`.
 
+It also loads combined feeds (`r/a+b`, the front page of your subscriptions) when the JSON API refuses them, which Reddit does for New and Rising: the post IDs come from the old listing page Reddit still serves logged-out visitors for these feeds, the posts themselves from the other backends. That takes two requests per page. Reddit allows an address about 100 of these pages per 10 minutes. Where Reddit refuses the page to logged-out visitors, `cookied-json` asks for it with a session from `REDLIB_REDDIT_COOKIE`.
+
 Scraped pages cost Reddit extra requests and may break when Reddit changes its pages. Set `REDLIB_ENABLE_SCRAPE_FALLBACK=off` to show the block error instead.
 
 ### Backend order
@@ -126,25 +132,27 @@ REDLIB_ENDPOINTS_COMMENTS="cookied-json,gql,scraped"
 
 While running, Redlib reorders the listed backends by how often each worked in the last half hour or so, counting session backends as twice as expensive (they use up the account's request budget). Your order is where it starts after a restart, and where a backend drifts back to once its failures are old, so a blocked backend gets tried again later. `/info` shows the current order and each backend's score.
 
-`json` is Reddit's API without an account, `cookied-json` the same with a session from `REDLIB_REDDIT_COOKIE` (from Reddit's website with the cookie, and for listings and search from the API with a token minted for the session like the app does), `gql` Reddit's GraphQL API (what the Android app uses), and `scraped` comments from the HTML Reddit serves logged-out visitors.
+`json` is Reddit's API without an account, `cookied-json` the same with a session from `REDLIB_REDDIT_COOKIE` (from Reddit's website with the cookie, and for listings and search from the API with a token minted for the session like the app does), `gql` Reddit's GraphQL API (what the Android app uses), and `scraped` comments and combined feeds from the HTML Reddit serves logged-out visitors.
 
 | `<KIND>`     | `json`     | `cookied-json` | `gql` | `scraped` | Default order |
 | ------------ | ---------- | -------------- | ----- | --------- | ------------- |
 | `POST`       | ✅         | ✅             | ✅    | ❌        | gql, json, cookied-json |
 | `COMMENTS`   | ⚠️ blocked | ✅             | ✅    | ✅        | gql, cookied-json, scraped, json |
-| `LISTING`    | ✅         | ✅             | ⚠️¹   | ❌        | json, gql, cookied-json |
+| `LISTING`    | ✅         | ✅             | ⚠️¹   | ⚠️⁴       | json, gql, scraped, cookied-json |
 | `ALL`        | ✅²        | ✅²            | ⚠️³   | ❌        | json, gql, cookied-json |
 | `SUBREDDIT`  | ✅         | ✅             | ✅    | ❌        | gql, json, cookied-json |
 | `USER`       | ⚠️ blocked | ✅             | ✅    | ❌        | gql, cookied-json |
 | `SEARCH`     | ✅         | ✅             | ✅    | ❌        | gql, json, cookied-json |
-| `WIKI`       | ✅         | ✅             | ❌    | ❌        | json, cookied-json |
+| `WIKI`       | ⚠️ blocked | ✅             | ✅    | ❌        | gql, cookied-json |
 | `DUPLICATES` | ✅         | ✅             | ❌    | ❌        | json, cookied-json |
 
 ¹ Skipped without a request for feeds of several subreddits (`r/a+b`, the front page of your subscriptions).
 
-² Reddit [retired r/all](https://www.reddit.com/r/reddithelp/comments/1rfmh8h/a_helpful_link_to_rall/) and answers `/r/all.json` with 403, but still serves the same feed as `/r/all+.json`, which is requested instead.
+² Reddit [retired r/all](https://www.reddit.com/r/reddithelp/comments/1rfmh8h/a_helpful_link_to_rall/) and answers `/r/all.json` with 403, but still serves the same feed as `/r/all%2B.json`, which is requested instead. A bare `/r/all+.json` gets a fixed copy of r/popular's first page.
 
 ³ The old GraphQL feed sends about 8 posts per request, so a page takes up to `REDLIB_GQL_FEED_REQUESTS` requests.
+
+⁴ Only feeds of several subreddits; skipped without a request for everything else.
 
 </details>
 
@@ -177,6 +185,8 @@ Assign a default value for each user-modifiable setting by passing environment v
 | `POSTS_PER_PAGE`                    | Integer 1-100                                                                                                                                                                                                                   | 25            |
 | `MAX_COMMENT_THREAD_DEPTH`          | Unsigned integer (0 = unlimited/Reddit default)                                                                                                                                                                                 | 0             |
 | `MORE_REPLIES_NEW_PAGE`             | `["on", "off"]`                                                                                                                                                                                                                 | `off`         |
+| `LIGHT_THEME`                       | Any `THEME` except `"system"`, used by `system` in light mode (empty = built-in light)                                                                                                                                          | `""`          |
+| `DARK_THEME`                        | Any `THEME` except `"system"`, used by `system` in dark mode (empty = built-in dark)                                                                                                                                            | `""`          |
 
 ## Forward proxies
 

@@ -1,6 +1,6 @@
 //! Reddit with the sessions from `REDLIB_REDDIT_COOKIE`, on the web host and the API.
 
-use super::{check_json, Backend, Failure, Fetch, Kind};
+use super::{check_json, scraped, Backend, Failure, Fetch, Kind};
 use crate::client::{now_secs, reddit_get_as, reroll_client, session_cookies, IntoHyperResponse, ALTERNATIVE_REDDIT_URL_BASE, CLIENT};
 use crate::oauth::session_token;
 use bytes::Buf;
@@ -31,8 +31,34 @@ impl Backend for CookiedJson {
 		2.0
 	}
 
-	fn fetch<'a>(&'a self, path: &'a str, _quarantine: bool) -> Fetch<'a> {
-		Box::pin(fetch(path))
+	fn fetch<'a>(&'a self, path: &'a str, quarantine: bool) -> Fetch<'a> {
+		Box::pin(async move {
+			match combined_feed(path, quarantine).await {
+				Some(feed) => feed,
+				None => fetch(path).await,
+			}
+		})
+	}
+}
+
+/// New and Rising of a combined feed (`r/a+b`): both JSON hosts refuse them to
+/// sessions, but reddit.com serves a session the old listing page, also where
+/// it blocks logged-out visitors. One session per request, taking turns.
+async fn combined_feed(path: &str, quarantine: bool) -> Option<Result<Value, Failure>> {
+	let route = path.split('?').next().unwrap_or_default().trim_end_matches(".json");
+	if !(route.ends_with("/new") || route.ends_with("/rising")) {
+		return None;
+	}
+	let sessions = awake(session_cookies(), now_secs());
+	let (label, cookie) = sessions.get(NEXT_SESSION.fetch_add(1, Ordering::Relaxed) % sessions.len().max(1))?;
+	match scraped::combined_feed(path, quarantine, Some(cookie)).await {
+		Err(Failure::Unsupported) => None,
+		feed => {
+			if let Err(failure) = &feed {
+				warn!("Session {label} didn't get the listing page for {path}: {failure:?}");
+			}
+			Some(feed)
+		}
 	}
 }
 
@@ -44,7 +70,7 @@ static NEXT_SESSION: AtomicUsize = AtomicUsize::new(0);
 /// emulation, so switch to another one and try once more with the sessions
 /// that still have budget.
 async fn fetch(path: &str) -> Result<Value, Failure> {
-	let path = &*session_path(path);
+	let path = &*Kind::json_path(path);
 	let mut response = web_session_get(path).await;
 	if let Err(refused) = response {
 		if worth_a_new_browser(path, refused) && reroll_client("Reddit refused every session") {
@@ -72,14 +98,6 @@ fn reddit_error(status: u16, json: &Value, path: &str) -> Failure {
 	let reason = json["reason"].as_str().unwrap_or("no reason");
 	let message = json["message"].as_str().unwrap_or_default();
 	Failure::Final(format!("Reddit error {status} {reason}: {message} | {path}"))
-}
-
-/// The API reads the bare `+` of `r/all+` as a space for a session's token; anonymous requests need it bare.
-fn session_path(path: &str) -> std::borrow::Cow<'_, str> {
-	match Kind::json_path(path) {
-		std::borrow::Cow::Owned(all) => all.replacen("/r/all+", "/r/all%2B", 1).into(),
-		same => same,
-	}
 }
 
 fn is_json(response: &WreqResponse) -> bool {
@@ -432,7 +450,7 @@ mod tests {
 			"/r/rust.json?raw_json=1",
 			"/r/rust/top.json?t=week&raw_json=1",
 			"/r/popular/hot.json?geo_filter=GLOBAL&raw_json=1",
-			"/r/all+/hot.json?raw_json=1",
+			"/r/all%2B/hot.json?raw_json=1",
 			"/search.json?q=rust&raw_json=1",
 			"/r/rust/search.json?q=async&restrict_sr=on&raw_json=1",
 			"/r/rust/api/widgets?raw_json=1",
@@ -447,7 +465,7 @@ mod tests {
 			"/r/redditdev/comments/1wubcvf.json?raw_json=1",
 			"/by_id/t3_1wubcvf.json?raw_json=1",
 			"/r/rust/new.json?raw_json=1",
-			"/r/all+/new.json?raw_json=1",
+			"/r/all%2B/new.json?raw_json=1",
 			"/r/rust/about.json?raw_json=1",
 			"/user/spez/about.json?raw_json=1",
 			"/r/rust/wiki/index.json?raw_json=1",
@@ -566,13 +584,6 @@ mod tests {
 			.insert("reddit_session=loop-notoken".into(), (None, u64::MAX));
 		let (_, calls) = ask("/r/rust/hot.json?raw_json=1", &["loop-notoken"], |_, _| answer(200, &[]));
 		assert_eq!(calls, [(Host::Web, "loop-notoken".into())]);
-	}
-
-	#[test]
-	fn test_sessions_get_r_all_with_an_encoded_plus() {
-		assert_eq!(session_path("/r/all/hot.json?raw_json=1"), "/r/all%2B/hot.json?raw_json=1");
-		assert_eq!(session_path("/r/all.json?raw_json=1"), "/r/all%2B.json?raw_json=1");
-		assert_eq!(session_path("/r/rust/hot.json?raw_json=1"), "/r/rust/hot.json?raw_json=1");
 	}
 
 	#[test]
